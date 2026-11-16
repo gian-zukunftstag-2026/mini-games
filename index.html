@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini-Games</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,sans-serif; display:flex; flex-direction:column; align-items:center; padding:48px 16px; }
+  h1 { font-size:2.5rem; margin:0 0 8px; }
+  p.sub { color:var(--muted); margin:0 0 40px; }
+  .grid { display:grid; gap:20px; width:100%; max-width:900px; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+  a.card { background:var(--card); border-radius:16px; padding:28px; text-decoration:none; color:var(--text);
+           border:2px solid transparent; transition:transform .15s, border-color .15s; }
+  a.card:hover { transform:translateY(-4px); border-color:var(--accent); }
+  .emoji { font-size:3rem; }
+  h2 { margin:12px 0 6px; }
+  .card p { color:var(--muted); margin:0; }
+</style>
+</head>
+<body>
+  <h1>🎮 Mini-Games</h1>
+  <p class="sub">Zukunftstag 2026</p>
+  <div class="grid">
+    <a class="card" href="weltflieger.html"><div class="emoji">✈️</div><h2>Weltflieger</h2><p>Flieg um die Welt.</p></a>
+    <a class="card" href="fussballer-tycoon.html"><div class="emoji">⚽</div><h2>Fussballer Tycoon</h2><p>Bau dein Fussball-Imperium auf.</p></a>
+    <a class="card" href="kopier-chaos.html"><div class="emoji">📠</div><h2>Kopier-Chaos</h2><p>Chaos im Kopierraum.</p></a>
+  </div>
+</body>
+</html>

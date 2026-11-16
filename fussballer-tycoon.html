@@ -1,0 +1,1474 @@
+<title>Fussballer Tycoon</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<style>
+  /* Layout: Anzeigetafel oben, Spielfeld (Canvas) in der Mitte, Spielerkarte unten. Alles auf einem Bildschirm. */
+  :root {
+    color-scheme: dark;
+    --grass-a: #155a31;
+    --grass-b: #124e2b;
+    --board: #0b1512;
+    --board-edge: #2a4035;
+    --chalk: #f1f5ec;
+    --muted: #a9bfb2;
+    --led: #ffc93c;
+    --led-ink: #2a1e00;
+    --whistle: #ff5a4f;
+    --net: rgba(241, 245, 236, 0.16);
+    --skin: #e0a878;
+    --display: "Bungee", "Arial Black", Impact, sans-serif;
+    --body: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-block: 10px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: repeating-linear-gradient(90deg, var(--grass-a) 0 72px, var(--grass-b) 72px 144px);
+    color: var(--chalk);
+    font-family: var(--body);
+    font-size: 16px;
+    font-weight: 500;
+    overflow-x: hidden;
+  }
+
+  /* Anzeigetafel */
+  .board {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    padding: 8px 14px;
+    background: var(--board);
+    border: 2px solid var(--board-edge);
+    border-radius: 6px;
+  }
+  .board h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-size: 17px;
+    font-weight: 400;
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+    color: var(--chalk);
+  }
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    margin: 0;
+    flex: 1 1 320px;
+    min-width: 0;
+  }
+  .stats div { min-width: 96px; }
+  .stats dt {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .stats dd {
+    margin: 0;
+    font-family: var(--display);
+    font-size: 19px;
+    line-height: 1.15;
+    color: var(--led);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+
+  button {
+    font: 600 15px/1.15 var(--body);
+    color: var(--chalk);
+    background: transparent;
+    border: 2px solid var(--board-edge);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 3px solid var(--chalk); outline-offset: 2px; }
+  button.primary {
+    background: var(--led);
+    border-color: var(--led);
+    color: var(--led-ink);
+    font-weight: 700;
+  }
+  button.primary:hover { filter: brightness(1.08); border-color: var(--led); }
+  button.danger { border-color: var(--whistle); color: var(--whistle); }
+
+  #ascend {
+    display: grid;
+    gap: 2px;
+    text-align: left;
+    min-width: 170px;
+    padding-bottom: 6px;
+  }
+  #ascend small { font-size: 12px; font-weight: 600; opacity: 0.85; }
+  #ascend .bar {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--board-edge);
+    overflow: hidden;
+  }
+  #ascend .bar i { display: block; height: 100%; width: 0; background: var(--led); }
+  #ascend.ready { background: var(--led); border-color: var(--led); color: var(--led-ink); }
+  #ascend.ready .bar { background: var(--led-ink); }
+  #ascend.ready .bar i { background: var(--led-ink); }
+
+  /* Spielfeld */
+  .stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 190px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    border: 3px solid var(--chalk);
+    border-radius: 4px;
+    box-sizing: border-box;
+    touch-action: none;
+    cursor: pointer;
+    background: var(--grass-a);
+  }
+  .toast {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100% - 24px);
+    padding: 7px 14px;
+    background: var(--board);
+    border: 2px solid var(--led);
+    border-radius: 6px;
+    color: var(--chalk);
+    font-weight: 600;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Spielerkarte */
+  .card {
+    display: flex;
+    flex: none;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    box-sizing: border-box;
+    height: 62px;
+    overflow: hidden;
+    padding: 8px 14px;
+    background: var(--board);
+    border: 2px solid var(--board-edge);
+    border-radius: 6px;
+  }
+  .card.empty { visibility: hidden; }
+  .card .who { display: grid; gap: 1px; min-width: 0; flex: 1 1 0; }
+  .card .who > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+  .card button { flex: none; white-space: nowrap; }
+  .board h1 small {
+    display: block;
+    font: 600 11px/1.3 var(--body);
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .card .tier {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--c, var(--muted));
+  }
+  .card strong { font-family: var(--display); font-weight: 400; font-size: 17px; line-height: 1.2; }
+  .card .meta { color: var(--muted); }
+  .card .meta b { color: var(--led); font-weight: 700; }
+  .card p { margin: 0; color: var(--muted); max-width: 70ch; }
+  .card p b { color: var(--chalk); font-weight: 600; }
+  kbd {
+    font: 700 12px var(--body);
+    border: 1.5px solid currentColor;
+    border-radius: 4px;
+    padding: 0 5px;
+    margin-left: 4px;
+  }
+
+  /* Rückfrage */
+  .modal {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(4, 14, 9, 0.72);
+  }
+  .modal .box {
+    max-width: 420px;
+    padding: 18px;
+    background: var(--board);
+    border: 2px solid var(--led);
+    border-radius: 8px;
+    display: grid;
+    gap: 12px;
+  }
+  .modal h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 20px; text-wrap: balance; }
+  .modal p { margin: 0; color: var(--muted); line-height: 1.4; }
+  .modal .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+  /* Elfmeter */
+  .goal {
+    position: relative;
+    height: 124px;
+    border: 5px solid var(--chalk);
+    border-bottom: 0;
+    border-radius: 4px 4px 0 0;
+    overflow: hidden;
+    background:
+      repeating-linear-gradient(45deg, transparent 0 9px, var(--net) 9px 10px),
+      repeating-linear-gradient(-45deg, transparent 0 9px, var(--net) 9px 10px),
+      var(--grass-b);
+  }
+  .keeper {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 34px;
+    height: 58px;
+    margin-left: -17px;
+    border-radius: 10px 10px 0 0;
+    background: var(--led);
+    transition: left 0.25s;
+  }
+  .keeper::before {
+    content: "";
+    position: absolute;
+    top: -20px;
+    left: 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--skin);
+  }
+  .pball {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    width: 22px;
+    height: 22px;
+    margin-left: -11px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: var(--chalk);
+    border: 3px solid var(--board);
+    transition: left 0.25s, bottom 0.25s;
+  }
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #penBtn.ready { border-color: var(--led); color: var(--led); }
+  @media (prefers-reduced-motion: reduce) {
+    .keeper, .pball { transition: none; }
+  }
+
+  /* GOATs */
+  .glist { display: grid; }
+  .grow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--board-edge);
+  }
+  .grow .iname { flex: 1 1 180px; }
+  .grow .iname b { font-family: var(--display); font-weight: 400; font-size: 16px; }
+  .grow button { flex: none; white-space: nowrap; }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .modal p.cmsg { min-height: 1.4em; color: var(--chalk); font-weight: 600; }
+  .modal p.cmsg.bad { color: var(--whistle); }
+  .modal p.cmsg.good { color: var(--led); }
+
+  /* Spieler-Index */
+  .modal .box.wide {
+    width: 100%;
+    max-width: 620px;
+    max-height: 100%;
+    box-sizing: border-box;
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .ihead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .ilist { overflow-y: auto; display: grid; gap: 2px; align-content: start; padding-right: 6px; }
+  .irow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 76px 104px;
+    gap: 10px;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--board-edge);
+  }
+  .ihdr {
+    position: sticky;
+    top: 0;
+    background: var(--board);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .ihdr span:nth-child(n+2), .inum { text-align: right; }
+  .itier {
+    margin: 10px 0 0;
+    font: 700 12px var(--body);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--c, var(--muted));
+  }
+  .iname { display: grid; min-width: 0; }
+  .iname b, .iname small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .iname b { font-weight: 700; color: var(--chalk); }
+  .iname small { font-size: 13px; color: var(--muted); }
+  .iname i { font-style: normal; color: var(--chalk); }
+  .inum { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .inum.gain { color: var(--led); font-weight: 700; }
+
+  @media (max-width: 560px) {
+    .board h1 { flex-basis: 100%; }
+    .stats { gap: 6px 16px; }
+    .stats dd { font-size: 16px; }
+    #ascend { min-width: 0; flex: 1 1 150px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast { transition: none; }
+  }
+</style>
+
+<header class="board">
+  <h1>Fussballer Tycoon<small>Inoffizielles Fan-Spiel</small></h1>
+  <dl class="stats">
+    <div><dt>Kasse</dt><dd id="money">25</dd></div>
+    <div><dt>Pro Sekunde</dt><dd id="rate">+0/s</dd></div>
+    <div><dt>Liga</dt><dd id="liga">Kreisliga ×1</dd></div>
+    <div><dt>Topspieler in</dt><dd id="pity">1:15</dd></div>
+  </dl>
+  <div class="actions">
+    <button id="ascend" type="button">
+      <span id="ascLabel">Aufstieg: Bezirksliga</span>
+      <small id="ascSub">250K nötig</small>
+      <span class="bar"><i id="ascBar"></i></span>
+    </button>
+    <button id="indexBtn" type="button">Index</button>
+    <button id="goatsBtn" type="button">GOATs</button>
+    <button id="penBtn" type="button">Elfmeter</button>
+    <button id="mute" type="button">Ton: an</button>
+    <button id="reset" type="button">Neu starten</button>
+  </div>
+</header>
+
+<main class="stage" id="stage">
+  <canvas id="game" width="900" height="640" aria-label="Spielfeld mit Spielertunnel und deinem Kader"></canvas>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</main>
+
+<footer class="card empty" id="card"></footer>
+
+<div class="modal" id="modal" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h2 id="mTitle"></h2>
+    <p id="mText"></p>
+    <div class="row">
+      <button id="mNo" type="button">Abbrechen</button>
+      <button id="mYes" type="button" class="primary"></button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="index" hidden>
+  <div class="box wide" role="dialog" aria-modal="true" aria-labelledby="iTitle">
+    <div class="ihead">
+      <h2 id="iTitle">Spieler-Index</h2>
+      <button id="iClose" type="button">Schliessen</button>
+    </div>
+    <p id="iNote"></p>
+    <div class="ilist" id="iList"></div>
+  </div>
+</div>
+
+<div class="modal" id="pen" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="pTitle">
+    <div class="ihead">
+      <h2 id="pTitle">Elfmeter</h2>
+      <button id="pClose" type="button">Schliessen</button>
+    </div>
+    <p id="pInfo"></p>
+    <div class="goal" aria-hidden="true">
+      <span class="keeper" id="keeper"></span>
+      <span class="pball" id="pball"></span>
+    </div>
+    <div class="shots" id="shots">
+      <button type="button" data-shot="0" class="primary">Links</button>
+      <button type="button" data-shot="1" class="primary">Mitte</button>
+      <button type="button" data-shot="2" class="primary">Rechts</button>
+    </div>
+    <p id="pMsg" class="cmsg" role="status"></p>
+  </div>
+</div>
+
+<div class="modal" id="goats" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="gTitle">
+    <div class="ihead">
+      <h2 id="gTitle">GOATs</h2>
+      <button id="gClose" type="button">Schliessen</button>
+    </div>
+    <p>Die zwei besten Spieler im ganzen Spiel. Sie laufen nie durch den Tunnel, du kaufst sie hier.</p>
+    <div class="glist" id="gList"></div>
+    <p id="gMsg" class="cmsg" role="status"></p>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Spielwerte ----------
+  const W = 900, H = 640;
+  const BELT_Y = 148, BELT_SPEED = 52, SPAWN_EVERY = 2.3, PITY = 75;
+  const PLAYER_SPEED = 235, MIN_Y = 172;
+  const SAVE_KEY = 'fussballer-tycoon-v1';
+  const PEN_CD = 90; // Sekunden Pause zwischen zwei Elfmetern
+  const GIFT_V = 2, GIFT_AMOUNT = 1e11; // einmaliges Geschenk; für ein neues Geschenk GIFT_V erhöhen
+  const PARADE_V = 1, PARADE_N = 20, PARADE_ID = 'mbappe'; // einmalige Parade: so viele Tunnel-Spieler am Stück sind dieser Spieler
+  const EVENTS = {
+    rush: { title: 'TRANSFER-RAUSCH', text: 'Doppelt so viele Spieler und mehr Glück', dur: 25 },
+    fest: { title: 'FAN-FEST', text: 'Dein Kader verdient doppelt', dur: 30 },
+    sale: { title: 'RABATT-AKTION', text: 'Alle Spieler im Tunnel 30 % billiger', dur: 25 },
+  };
+
+  const LIGEN = ['Kreisliga', 'Bezirksliga', 'Landesliga', 'Oberliga', 'Regionalliga', 'Zweite Liga', 'Erste Liga', 'Königsklasse'];
+  const ASC_COST = [2.5e5, 5e6, 1e8, 2e9, 4e10, 8e11, 2e13];
+
+  const TIERS = [
+    { name: 'Talent', color: '#c3cfc7' },
+    { name: 'Profi', color: '#62d96b' },
+    { name: 'Star', color: '#58b0ff' },
+    { name: 'Superstar', color: '#cf8bff' },
+    { name: 'Weltklasse', color: '#ffc93c' },
+    { name: 'Legende', color: '#ff6a5f' },
+    { name: 'Galaktisch', color: 'rainbow' },
+    { name: 'GOAT', color: '#ff8ad8' },
+  ];
+  const GOAT_TIER = 7; // läuft nie durch den Tunnel, gibt es nur in der Abteilung GOATs
+  const GOATS = ['messi', 'ronaldo'];
+  const POS = { ST: 'Sturm', IV: 'Abwehr', LV: 'Abwehr', ZM: 'Mittelfeld', RA: 'Rechtsaussen', LA: 'Linksaussen', TW: 'Tor', ZOM: 'Spielmacher' };
+
+  const K = (id, name, club, pos, tier, price, inc, jersey, shorts, skin, hair, num) =>
+    ({ id, name, club, pos, tier, price, inc, jersey, shorts, skin, hair, num });
+  // Echte Spieler von Topvereinen, Stand Saison 2026/27. Trikots nur in Vereinsfarben, ohne Wappen.
+  const KICKERS = [
+    K('karl', 'Lennart Karl', 'Bayern München', 'RA', 0, 20, 1, '#dc052d', '#b00424', '#f2c9a0', '#b5651d', 42),
+    K('skelly', 'Myles Lewis-Skelly', 'Arsenal', 'LV', 0, 60, 3, '#ef0107', '#ffffff', '#8d5524', '#111111', 49),
+    K('cubarsi', 'Pau Cubarsí', 'FC Barcelona', 'IV', 0, 140, 6, '#a50044', '#004d98', '#f2c9a0', '#2b1b12', 5),
+    K('gueler', 'Arda Güler', 'Real Madrid', 'ZOM', 1, 400, 14, '#ffffff', '#f2f2f2', '#f2c9a0', '#2b1b12', 15),
+    K('zaire', 'Warren Zaïre-Emery', 'Paris Saint-Germain', 'ZM', 1, 900, 28, '#1a2a5c', '#111d40', '#8d5524', '#111111', 33),
+    K('donnarumma', 'Gianluigi Donnarumma', 'Manchester City', 'TW', 1, 2000, 55, '#3ddc84', '#1b4d2b', '#f2c9a0', '#2b1b12', 1),
+    K('saka', 'Bukayo Saka', 'Arsenal', 'RA', 2, 6000, 140, '#ef0107', '#ffffff', '#8d5524', '#111111', 7),
+    K('vandijk', 'Virgil van Dijk', 'Liverpool', 'IV', 2, 14000, 300, '#c8102e', '#a00d25', '#c68642', '#111111', 4),
+    K('wirtz', 'Florian Wirtz', 'Liverpool', 'ZOM', 2, 32000, 620, '#c8102e', '#a00d25', '#f2c9a0', '#6b4423', 7),
+    K('musiala', 'Jamal Musiala', 'Bayern München', 'ZOM', 3, 90000, 1500, '#dc052d', '#b00424', '#c68642', '#111111', 10),
+    K('palmer', 'Cole Palmer', 'Chelsea', 'ZOM', 3, 220000, 3400, '#034694', '#02356f', '#f2c9a0', '#b5651d', 10),
+    K('courtois', 'Thibaut Courtois', 'Real Madrid', 'TW', 3, 500000, 7000, '#f5d90a', '#222222', '#f2c9a0', '#6b4423', 1),
+    K('kane', 'Harry Kane', 'Bayern München', 'ST', 4, 1.5e6, 18000, '#dc052d', '#b00424', '#f2c9a0', '#b5651d', 9),
+    K('pedri', 'Pedri', 'FC Barcelona', 'ZM', 4, 4e6, 42000, '#a50044', '#004d98', '#f2c9a0', '#2b1b12', 8),
+    K('bellingham', 'Jude Bellingham', 'Real Madrid', 'ZM', 4, 1e7, 95000, '#ffffff', '#f2f2f2', '#a9713c', '#111111', 5),
+    K('vinicius', 'Vinícius Júnior', 'Real Madrid', 'LA', 5, 4e7, 320000, '#ffffff', '#f2f2f2', '#6b4423', '#111111', 7),
+    K('dembele', 'Ousmane Dembélé', 'Paris Saint-Germain', 'RA', 5, 1.1e8, 800000, '#1a2a5c', '#111d40', '#6b4423', '#111111', 10),
+    K('haaland', 'Erling Haaland', 'Manchester City', 'ST', 5, 2.5e8, 1.6e6, '#6cabdd', '#ffffff', '#f2c9a0', '#e8d28a', 9),
+    K('yamal', 'Lamine Yamal', 'FC Barcelona', 'RA', 6, 6e8, 3.5e6, '#a50044', '#004d98', '#c68642', '#2b1b12', 10),
+    K('mbappe', 'Kylian Mbappé', 'Real Madrid', 'ST', 6, 2.5e9, 1.2e7, '#ffffff', '#f2f2f2', '#8d5524', '#111111', 10),
+    // GOATs: stärker als jeder Tunnel-Spieler, auch als ein Diamant-Mbappé (72 Mio/s)
+    K('ronaldo', 'Cristiano Ronaldo', 'Al-Nassr', 'ST', GOAT_TIER, 2.5e10, 1e8, '#fbe122', '#003a8c', '#e0a878', '#111111', 7),
+    K('messi', 'Lionel Messi', 'Inter Miami', 'ZOM', GOAT_TIER, 1e11, 3e8, '#f7b5cd', '#111111', '#f2c9a0', '#2b1b12', 10),
+  ];
+  const BY_ID = Object.fromEntries(KICKERS.map(k => [k.id, k]));
+  // Alte Spielstände mit den früheren Fantasie-Spielern bleiben erhalten
+  const LEGACY = {
+    benno: 'karl', guenther: 'skelly', kalle: 'cubarsi', franz: 'gueler', dieter: 'zaire', manni: 'donnarumma',
+    timo: 'saka', kuno: 'vandijk', freddy: 'wirtz', hannes: 'musiala', emilio: 'palmer', konrad: 'courtois',
+    fabio: 'kane', maestro: 'pedri', leopold: 'bellingham', tiago: 'vinicius', takumi: 'dembele',
+    kiko: 'yamal', alien: 'mbappe',
+  };
+  const VARIANTS = {
+    n: { label: '', pm: 1, im: 1 },
+    g: { label: 'Gold', pm: 2, im: 3 },
+    d: { label: 'Diamant', pm: 3.5, im: 6 },
+  };
+
+  // ---------- Zustand ----------
+  const fresh = () => ({ money: 25, reb: 0, slots: Array(10).fill(null), pity: PITY, mute: false, found: {}, streak: 0, penAt: 0, gift: 0, mbQ: 0, mbV: 0 });
+  let S = fresh();
+  const belt = [], walkers = [], floats = [], sparks = [];
+  const lastCollect = Array(10).fill(-9);
+  const player = { x: 450, y: 300, moving: false };
+  const keys = new Set();
+  let moveTarget = null, chase = null, selected = -1, sellArmed = -1;
+  let spawnT = SPAWN_EVERY, spawnN = 0, uid = 1, time = 0, modalOpen = false;
+  // Ereignisse und goldener Ball laufen nur im Moment, sie werden nicht gespeichert
+  let EV = null, evT = 40, ball = null, ballT = 22, beltOff = 0;
+  const evIs = type => !!EV && EV.type === type;
+  const beltSpeed = () => (evIs('rush') ? BELT_SPEED * 2 : BELT_SPEED);
+  const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+  const unlocked = () => Math.min(10, 6 + S.reb);
+  const incomeOf = s => BY_ID[s.id].inc * VARIANTS[s.variant].im * (1 + S.reb) * (evIs('fest') ? 2 : 1);
+  const priceOf = (def, variant) => Math.round(def.price * VARIANTS[variant].pm * (evIs('sale') ? 0.7 : 1));
+  const totalRate = () => S.slots.reduce((a, s) => a + (s ? incomeOf(s) : 0), 0);
+  const owned = () => S.slots.filter(Boolean).length;
+
+  function fmt(n) {
+    n = Math.floor(n);
+    if (n < 1000) return String(n);
+    const units = [[1e15, ' Brd'], [1e12, ' Bio'], [1e9, ' Mrd'], [1e6, ' Mio'], [1e3, 'K']];
+    for (const [v, s] of units) {
+      if (n >= v) {
+        const x = n / v;
+        const str = x >= 100 ? String(Math.floor(x)) : x >= 10 ? String(Math.floor(x * 10) / 10) : String(Math.floor(x * 100) / 100);
+        return str.replace('.', ',') + s;
+      }
+    }
+    return String(n);
+  }
+
+  function slotPos(i) {
+    const cx = 90 + (i % 5) * 180;
+    const ky = i < 5 ? 472 : 592;
+    return { cx, kx: cx - 32, ky, px: cx + 40, py: ky - 10 };
+  }
+
+  // ---------- Speichern ----------
+  function serialize() {
+    return {
+      v: 1, money: S.money, reb: S.reb, pity: S.pity, mute: S.mute, t: Date.now(),
+      found: Object.keys(S.found), streak: S.streak, penAt: S.penAt, gift: S.gift, mbQ: S.mbQ, mbV: S.mbV,
+      slots: S.slots.map(s => s ? { id: s.id, variant: s.variant, acc: s.acc, paid: s.paid } : null),
+    };
+  }
+  function save() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); } catch (e) { /* ohne Speicher weiterspielen */ }
+  }
+  function adopt(d) {
+    if (!d || typeof d !== 'object' || typeof d.money !== 'number' || !isFinite(d.money)) return false;
+    const f = fresh();
+    f.money = Math.max(0, d.money);
+    f.reb = clamp(d.reb | 0, 0, LIGEN.length - 1);
+    f.pity = typeof d.pity === 'number' ? clamp(d.pity, 0, PITY) : PITY;
+    f.mute = !!d.mute;
+    f.streak = clamp(d.streak | 0, 0, 999);
+    f.gift = clamp(d.gift | 0, 0, GIFT_V);
+    f.mbQ = clamp(d.mbQ | 0, 0, PARADE_N);
+    f.mbV = clamp(d.mbV | 0, 0, PARADE_V);
+    f.penAt = typeof d.penAt === 'number' && isFinite(d.penAt) ? Math.min(d.penAt, Date.now() + PEN_CD * 1000) : 0;
+    if (Array.isArray(d.found)) d.found.forEach(x => { const id = LEGACY[x] || x; if (BY_ID[id]) f.found[id] = true; });
+    if (Array.isArray(d.slots)) d.slots.forEach(s => { const id = s && (LEGACY[s.id] || s.id); if (id && BY_ID[id]) f.found[id] = true; });
+    if (Array.isArray(d.slots)) {
+      d.slots.slice(0, 10).forEach((s, i) => {
+        const id = s && (LEGACY[s.id] || s.id);
+        if (s && BY_ID[id]) {
+          f.slots[i] = {
+            id,
+            variant: VARIANTS[s.variant] ? s.variant : 'n',
+            acc: Math.max(0, +s.acc || 0),
+            paid: Math.max(0, +s.paid || 0),
+          };
+        }
+      });
+    }
+    S = f;
+    return typeof d.t === 'number' ? d.t : true;
+  }
+
+  // ---------- Ton ----------
+  let ac = null;
+  function beep(freq, dur, type, vol, slide) {
+    if (S.mute) return;
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime;
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t0);
+      if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t0 + dur);
+      g.gain.setValueAtTime(vol || 0.04, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0); o.stop(t0 + dur);
+    } catch (e) { /* kein Ton verfügbar */ }
+  }
+
+  // ---------- DOM ----------
+  const $ = id => document.getElementById(id);
+  const canvas = $('game'), ctx = canvas.getContext('2d'), stage = $('stage');
+  const $money = $('money'), $rate = $('rate'), $liga = $('liga'), $pity = $('pity');
+  const $asc = $('ascend'), $ascLabel = $('ascLabel'), $ascSub = $('ascSub'), $ascBar = $('ascBar');
+  const $mute = $('mute'), $reset = $('reset'), $card = $('card'), $toast = $('toast');
+  const $modal = $('modal'), $mTitle = $('mTitle'), $mText = $('mText'), $mYes = $('mYes'), $mNo = $('mNo');
+
+  let toastTimer = 0;
+  function toast(msg) {
+    $toast.textContent = msg;
+    $toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $toast.classList.remove('show'), 2600);
+  }
+
+  let modalYes = null;
+  function openModal(title, text, yesLabel, onYes) {
+    $mTitle.textContent = title; $mText.textContent = text; $mYes.textContent = yesLabel;
+    modalYes = onYes; modalOpen = true; keys.clear();
+    $modal.hidden = false; $mNo.focus();
+  }
+  function closeModal() { $modal.hidden = true; $index.hidden = true; $goats.hidden = true; $pen.hidden = true; modalOpen = false; modalYes = null; }
+  $mNo.addEventListener('click', closeModal);
+  $mYes.addEventListener('click', () => { const f = modalYes; closeModal(); if (f) f(); });
+  $modal.addEventListener('click', ev => { if (ev.target === $modal) closeModal(); });
+
+  // ---------- Spieler-Index ----------
+  const $index = $('index'), $iList = $('iList'), $iNote = $('iNote'), $iClose = $('iClose');
+  function openIndex() {
+    const mult = 1 + S.reb, inSquad = {};
+    S.slots.forEach(s => { if (s) inSquad[s.id] = true; });
+    let html = '<div class="irow ihdr"><span>Spieler</span><span>Preis</span><span>Pro Sekunde</span></div>';
+    let lastTier = -1;
+    for (const d of KICKERS) {
+      if (d.tier !== lastTier) {
+        lastTier = d.tier;
+        const c = TIERS[d.tier].color === 'rainbow' ? '#ff9df5' : TIERS[d.tier].color;
+        html += '<h3 class="itier" style="--c:' + c + '">' + TIERS[d.tier].name + '</h3>';
+      }
+      const tag = inSquad[d.id] ? 'im Kader' : S.found[d.id] ? 'schon gehabt' : '';
+      html += '<div class="irow"><span class="iname"><b>' + d.name + '</b><small>' + d.club + ' · ' + POS[d.pos] +
+        (tag ? ' · <i>' + tag + '</i>' : '') + '</small></span>' +
+        '<span class="inum">' + fmt(d.price) + '</span>' +
+        '<span class="inum gain">+' + fmt(d.inc * mult) + '/s</span></div>';
+    }
+    $iList.innerHTML = html;
+    $iNote.textContent = Object.keys(S.found).length + ' von ' + KICKERS.length + ' Spielern gesammelt. ' +
+      'Das Einkommen gilt für deine Liga (×' + mult + '). ' +
+      'Gold-Spieler kosten ×2 und bringen ×3, Diamant-Spieler kosten ×3,5 und bringen ×6.';
+    modalOpen = true; keys.clear();
+    $index.hidden = false; $iList.scrollTop = 0; $iClose.focus();
+  }
+  $('indexBtn').addEventListener('click', openIndex);
+  $iClose.addEventListener('click', closeModal);
+  $index.addEventListener('click', ev => { if (ev.target === $index) closeModal(); });
+
+  // ---------- GOATs ----------
+  const $goats = $('goats'), $gList = $('gList'), $gMsg = $('gMsg');
+  let goatKey = '';
+  function renderGoats() {
+    const mult = 1 + S.reb;
+    let key = String(mult), html = '';
+    for (const id of GOATS) {
+      const d = BY_ID[id], has = S.slots.some(s => s && s.id === id), can = S.money >= d.price;
+      key += ':' + has + ':' + can;
+      html += '<div class="grow"><span class="iname"><b>' + d.name + '</b><small>' + d.club + ' · ' + POS[d.pos] +
+        ' · bringt +' + fmt(d.inc * mult) + '/s</small></span>' +
+        (has ? '<button type="button" disabled>Im Kader</button>'
+          : '<button type="button" data-goat="' + id + '" class="' + (can ? 'primary' : '') + '">Kaufen für ' + fmt(d.price) + '</button>') +
+        '</div>';
+    }
+    if (key !== goatKey) { goatKey = key; $gList.innerHTML = html; }
+  }
+  function buyGoat(id) {
+    const d = BY_ID[id];
+    if (!d || d.tier !== GOAT_TIER) return;
+    let msg, ok = false;
+    if (S.slots.some(s => s && s.id === id)) msg = d.name + ' ist schon in deinem Kader.';
+    else if (S.money < d.price) msg = 'Zu teuer. Dir fehlen noch ' + fmt(Math.ceil(d.price - S.money)) + '.';
+    else {
+      let slot = -1;
+      for (let i = 0; i < unlocked(); i++) { if (!S.slots[i]) { slot = i; break; } }
+      if (slot < 0) msg = 'Dein Kader ist voll. Verkaufe zuerst einen Spieler.';
+      else {
+        S.money -= d.price;
+        S.slots[slot] = { id, variant: 'n', acc: 0, paid: d.price };
+        S.found[id] = true;
+        walkers.push({ slot, x: W / 2, y: BELT_Y, phase: 0 });
+        confetti(W / 2, BELT_Y - 30, 60);
+        [659, 784, 1047].forEach((f, k) => setTimeout(() => beep(f, 0.18, 'triangle', 0.06), k * 110));
+        save();
+        ok = true; msg = d.name + ' ist jetzt in deinem Kader!';
+      }
+    }
+    if (!ok) beep(160, 0.15, 'sawtooth', 0.04);
+    $gMsg.textContent = msg; $gMsg.className = 'cmsg ' + (ok ? 'good' : 'bad');
+    renderGoats();
+  }
+  $('goatsBtn').addEventListener('click', () => {
+    $gMsg.textContent = ''; $gMsg.className = 'cmsg';
+    goatKey = ''; renderGoats();
+    modalOpen = true; keys.clear();
+    $goats.hidden = false; $('gClose').focus();
+  });
+  $gList.addEventListener('click', ev => {
+    const btn = ev.target.closest('button[data-goat]');
+    if (btn) buyGoat(btn.dataset.goat);
+  });
+  $('gClose').addEventListener('click', closeModal);
+  $goats.addEventListener('click', ev => { if (ev.target === $goats) closeModal(); });
+
+  // ---------- Elfmeter ----------
+  const $pen = $('pen'), $pInfo = $('pInfo'), $pMsg = $('pMsg'), $keeper = $('keeper'), $pball = $('pball');
+  const $penBtn = $('penBtn'), $shots = $('shots');
+  const SHOT_X = ['18%', '50%', '82%'];
+  let penBusy = false;
+  const mmss = s => { s = Math.ceil(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const penWait = () => Math.max(0, (S.penAt - Date.now()) / 1000);
+  const penBonus = () => 1 + 0.5 * Math.min(S.streak, 4);
+  const penPrize = () => Math.max(100, totalRate() * 60) * penBonus();
+  function penInfo() {
+    const w = penWait(), ready = w <= 0 && !penBusy;
+    $shots.querySelectorAll('button').forEach(b => { b.disabled = !ready; });
+    setText($pInfo, w > 0
+      ? 'Nächster Elfmeter in ' + mmss(w) + '. Deine Serie: ' + S.streak + '.'
+      : 'Wähl eine Ecke. Ein Tor bringt ' + fmt(penPrize()) + '. Deine Serie: ' + S.streak +
+        ' (Bonus ×' + String(penBonus()).replace('.', ',') + ').');
+  }
+  function shoot(k) {
+    if (penBusy || penWait() > 0) return;
+    penBusy = true;
+    const keeper = Math.floor(Math.random() * 3), goal = keeper !== k, prize = penPrize();
+    $keeper.style.left = SHOT_X[keeper];
+    $pball.style.left = SHOT_X[k]; $pball.style.bottom = '56%';
+    beep(220, 0.08, 'square', 0.05);
+    penInfo();
+    setTimeout(() => {
+      if (goal) {
+        S.money += prize; S.streak++;
+        $pMsg.textContent = 'TOR! +' + fmt(prize) + '. Serie: ' + S.streak + '.';
+        $pMsg.className = 'cmsg good';
+        confetti(W / 2, 270, 50);
+        [523, 784, 1047].forEach((f, n) => setTimeout(() => beep(f, 0.16, 'triangle', 0.06), n * 100));
+      } else {
+        S.streak = 0;
+        $pMsg.textContent = 'Gehalten! Deine Serie ist vorbei.';
+        $pMsg.className = 'cmsg bad';
+        beep(160, 0.25, 'sawtooth', 0.05, 0.6);
+      }
+      S.penAt = Date.now() + PEN_CD * 1000;
+      penBusy = false;
+      save(); penInfo();
+    }, 380);
+  }
+  $penBtn.addEventListener('click', () => {
+    if (penWait() <= 0 && !penBusy) {
+      $keeper.style.left = '50%'; $pball.style.left = '50%'; $pball.style.bottom = '6px';
+      $pMsg.textContent = ''; $pMsg.className = 'cmsg';
+    }
+    penInfo();
+    modalOpen = true; keys.clear();
+    $pen.hidden = false; $('pClose').focus();
+  });
+  $shots.addEventListener('click', ev => {
+    const btn = ev.target.closest('button[data-shot]');
+    if (btn) shoot(+btn.dataset.shot);
+  });
+  $('pClose').addEventListener('click', closeModal);
+  $pen.addEventListener('click', ev => { if (ev.target === $pen) closeModal(); });
+
+  // ---------- Spielertunnel ----------
+  function pickTier(top) {
+    if (top) { const r = Math.random(); return r < 0.6 ? 3 : r < 0.9 ? 4 : r < 0.98 ? 5 : 6; }
+    const luck = 1 + 0.5 * S.reb + (evIs('rush') ? 1.5 : 0);
+    const w = [56, 27, 11, 4.4, 1.2, 0.3, 0.06].map((b, t) => b * Math.pow(luck, t * 0.6));
+    let r = Math.random() * w.reduce((a, b) => a + b, 0);
+    for (let t = 0; t < w.length; t++) { if ((r -= w[t]) < 0) return t; }
+    return 0;
+  }
+  function spawn(top) {
+    const tier = pickTier(top);
+    const pool = KICKERS.filter(k => k.tier === tier);
+    let total = 0;
+    const ws = pool.map((_, i) => { const w = pool.length - i; total += w; return w; });
+    let r = Math.random() * total, def = pool[0];
+    for (let i = 0; i < pool.length; i++) { if ((r -= ws[i]) < 0) { def = pool[i]; break; } }
+    if (S.mbQ > 0 && BY_ID[PARADE_ID]) { def = BY_ID[PARADE_ID]; S.mbQ--; }
+    const v = Math.random();
+    const variant = v < 0.012 ? 'd' : v < 0.06 ? 'g' : 'n';
+    const b = { uid: uid++, def, variant, x: -30, row: spawnN++ % 2, phase: Math.random() * 6 };
+    belt.push(b);
+    if (top) {
+      toast('Topspieler im Tunnel: ' + def.name + '!');
+      beep(880, 0.12, 'triangle', 0.06);
+      setTimeout(() => beep(1175, 0.22, 'triangle', 0.06), 130);
+    }
+    return b;
+  }
+  function nearestBelt(range) {
+    let best = null, bd = range;
+    for (const b of belt) {
+      const d = dist(player.x, player.y, b.x, BELT_Y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  // ---------- Ereignisse und goldener Ball ----------
+  function startEvent() {
+    const types = Object.keys(EVENTS), type = types[Math.floor(Math.random() * types.length)];
+    EV = { type, t: EVENTS[type].dur };
+    toast(EVENTS[type].title + '! ' + EVENTS[type].text + '.');
+    beep(660, 0.1, 'triangle', 0.06);
+    setTimeout(() => beep(990, 0.18, 'triangle', 0.06), 110);
+  }
+  function spawnBall() {
+    const a = Math.random() * Math.PI * 2;
+    ball = { x: 60 + Math.random() * (W - 120), y: 205 + Math.random() * 150, vx: Math.cos(a) * 170, vy: Math.sin(a) * 170, t: 12 };
+    toast('Goldener Ball auf dem Platz! Schnapp ihn dir.');
+    beep(1320, 0.1, 'triangle', 0.05);
+  }
+  function updateExtras(dt) {
+    if (EV) {
+      EV.t -= dt;
+      if (EV.t <= 0) { EV = null; evT = 45 + Math.random() * 30; }
+    } else {
+      evT -= dt;
+      if (evT <= 0) startEvent();
+    }
+    if (ball) {
+      ball.t -= dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+      if (ball.x < 24 || ball.x > W - 24) { ball.vx *= -1; ball.x = clamp(ball.x, 24, W - 24); }
+      if (ball.y < 192 || ball.y > 372) { ball.vy *= -1; ball.y = clamp(ball.y, 192, 372); }
+      if (dist(player.x, player.y - 14, ball.x, ball.y) < 30) {
+        const gain = Math.max(50, totalRate() * 45);
+        S.money += gain;
+        floats.push({ x: ball.x, y: ball.y - 20, text: 'Goldener Ball! +' + fmt(gain), color: '#ffc93c', life: 1.4 });
+        confetti(ball.x, ball.y, 30);
+        beep(880, 0.1, 'triangle', 0.06);
+        setTimeout(() => beep(1320, 0.2, 'triangle', 0.06), 100);
+        ball = null; ballT = 35 + Math.random() * 25;
+      } else if (ball.t <= 0) {
+        ball = null; ballT = 35 + Math.random() * 25;
+      }
+    } else {
+      ballT -= dt;
+      if (ballT <= 0) spawnBall();
+    }
+  }
+
+  // ---------- Aktionen ----------
+  function tryBuy(b) {
+    const price = priceOf(b.def, b.variant);
+    if (S.money < price) {
+      toast('Zu teuer. Dir fehlen noch ' + fmt(Math.ceil(price - S.money)) + '.');
+      beep(160, 0.15, 'sawtooth', 0.04);
+      return false;
+    }
+    let slot = -1;
+    for (let i = 0; i < unlocked(); i++) { if (!S.slots[i]) { slot = i; break; } }
+    if (slot < 0) {
+      toast('Dein Kader ist voll. Verkaufe einen Spieler oder steig auf.');
+      beep(160, 0.15, 'sawtooth', 0.04);
+      return false;
+    }
+    S.money -= price;
+    const i = belt.indexOf(b);
+    if (i >= 0) belt.splice(i, 1);
+    S.slots[slot] = { id: b.def.id, variant: b.variant, acc: 0, paid: price };
+    S.found[b.def.id] = true;
+    walkers.push({ slot, x: b.x, y: BELT_Y, phase: b.phase });
+    floats.push({ x: b.x, y: BELT_Y - 60, text: '−' + fmt(price), color: '#ff8f86', life: 1 });
+    beep(520, 0.09, 'square', 0.04);
+    setTimeout(() => beep(780, 0.14, 'square', 0.04), 90);
+    if (b.def.tier >= 3) confetti(b.x, BELT_Y - 30, 26);
+    save();
+    return true;
+  }
+  function buyNearest() {
+    const b = nearestBelt(115);
+    if (!b) { toast('Geh näher an den Spielertunnel.'); return; }
+    tryBuy(b);
+  }
+  function sell(i) {
+    const s = S.slots[i];
+    if (!s) return;
+    const gain = Math.floor(s.paid * 0.4) + s.acc;
+    S.money += gain;
+    const p = slotPos(i);
+    floats.push({ x: p.cx, y: p.ky - 56, text: '+' + fmt(gain), color: '#ffc93c', life: 1 });
+    S.slots[i] = null;
+    for (let w = walkers.length - 1; w >= 0; w--) if (walkers[w].slot === i) walkers.splice(w, 1);
+    selected = -1; sellArmed = -1;
+    beep(330, 0.16, 'triangle', 0.05, 0.6);
+    save();
+  }
+  // Eigener Spieler, der gerade angeklickt ist
+  function ownTarget() {
+    return selected >= 0 && S.slots[selected] ? selected : -1;
+  }
+  function sellStep() {
+    const i = ownTarget();
+    if (i < 0) { toast('Klick zuerst auf einen deiner Spieler.'); return; }
+    if (sellArmed === i) sell(i); else { sellArmed = i; cardKey = ''; }
+  }
+  function ascend() {
+    const next = LIGEN[S.reb + 1];
+    const mute = S.mute, reb = S.reb + 1, found = S.found, streak = S.streak, penAt = S.penAt;
+    S = fresh(); S.reb = reb; S.mute = mute; S.found = found; S.streak = streak; S.penAt = penAt; S.gift = GIFT_V; S.mbV = PARADE_V;
+    walkers.length = 0; selected = -1; chase = null; moveTarget = null;
+    confetti(W / 2, 120, 90);
+    toast('Aufstieg in die ' + next + '! Jeder Spieler verdient jetzt ×' + (reb + 1) + '.');
+    [523, 659, 784, 1047].forEach((f, k) => setTimeout(() => beep(f, 0.2, 'triangle', 0.06), k * 130));
+    save();
+  }
+  function confetti(x, y, n) {
+    if (reducedMotion) return;
+    const cols = ['#ffc93c', '#f1f5ec', '#ff6a5f', '#58b0ff', '#62d96b'];
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 200;
+      sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, life: 1 + Math.random() * 0.6, c: cols[i % cols.length] });
+    }
+  }
+
+  // ---------- Eingabe ----------
+  const MOVE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyA', 'KeyS', 'KeyD'];
+  window.addEventListener('keydown', ev => {
+    if (modalOpen) { if (ev.key === 'Escape') closeModal(); return; }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (MOVE_KEYS.includes(ev.code)) { keys.add(ev.code); ev.preventDefault(); }
+    else if (ev.code === 'KeyE' && !ev.repeat) { buyNearest(); }
+    else if (ev.code === 'KeyV' && !ev.repeat) { sellStep(); }
+    else if (ev.key === 'Escape') { selected = -1; sellArmed = -1; }
+  });
+  window.addEventListener('keyup', ev => keys.delete(ev.code));
+  window.addEventListener('blur', () => keys.clear());
+
+  canvas.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
+    sellArmed = -1;
+    if (y < MIN_Y) {
+      let best = null, bd = 46;
+      for (const b of belt) { const d = Math.abs(b.x - x); if (d < bd) { bd = d; best = b; } }
+      if (best) { chase = best.uid; moveTarget = null; selected = -1; return; }
+    }
+    for (let i = 0; i < unlocked(); i++) {
+      if (!S.slots[i]) continue;
+      const p = slotPos(i);
+      if (Math.abs(x - p.cx) < 82 && y > p.ky - 56 && y < p.ky + 42 && dist(x, y, p.px, p.py) > 24) {
+        selected = i; chase = null; moveTarget = null; return;
+      }
+    }
+    selected = -1; chase = null;
+    moveTarget = { x: clamp(x, 20, W - 20), y: clamp(y, MIN_Y, H - 12) };
+  });
+
+  $card.addEventListener('click', ev => {
+    const btn = ev.target.closest('button[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === 'buy') {
+      const b = chase != null ? belt.find(e => e.uid === chase) : nearestBelt(115);
+      if (b) tryBuy(b);
+    } else if (act === 'sell') {
+      sellStep();
+    }
+    cardKey = '';
+  });
+
+  $asc.addEventListener('click', () => {
+    if (S.reb >= ASC_COST.length) { toast('Du spielst schon in der höchsten Liga.'); return; }
+    const cost = ASC_COST[S.reb];
+    if (S.money < cost) { toast('Für den Aufstieg fehlen dir noch ' + fmt(Math.ceil(cost - S.money)) + '.'); return; }
+    const extra = unlocked() < 10 ? ' und du bekommst einen Kaderplatz dazu' : '';
+    openModal(
+      'Aufstieg in die ' + LIGEN[S.reb + 1] + '?',
+      'Kasse und Kader fangen neu an. Dafür verdient jeder Spieler ×' + (S.reb + 2) + ', im Tunnel laufen öfter starke Spieler' + extra + '.',
+      'Aufsteigen', ascend);
+  });
+  $mute.addEventListener('click', () => { S.mute = !S.mute; $mute.textContent = S.mute ? 'Ton: aus' : 'Ton: an'; save(); });
+  $reset.addEventListener('click', () => {
+    openModal('Neu starten?', 'Der ganze Spielstand wird gelöscht. Das lässt sich nicht rückgängig machen.', 'Alles löschen', () => {
+      const mute = S.mute;
+      S = fresh(); S.mute = mute; S.gift = GIFT_V; S.mbV = PARADE_V;
+      walkers.length = 0; selected = -1; chase = null; moveTarget = null;
+      player.x = 450; player.y = 300;
+      save();
+      toast('Neuer Spielstand. Viel Erfolg!');
+    });
+  });
+
+  // ---------- Logik ----------
+  function update(dt, real) {
+    time += dt;
+    beltOff += beltSpeed() * dt;
+    updateExtras(dt);
+
+    S.pity = Math.max(0, S.pity - dt);
+    spawnT -= dt;
+    if (spawnT <= 0) {
+      spawnT += evIs('rush') ? SPAWN_EVERY / 2 : SPAWN_EVERY;
+      const top = S.pity <= 0;
+      if (top) S.pity = PITY;
+      spawn(top);
+    }
+    for (let i = belt.length - 1; i >= 0; i--) {
+      const b = belt[i];
+      b.x += beltSpeed() * dt;
+      if (b.x > W + 40) { if (chase === b.uid) chase = null; belt.splice(i, 1); }
+    }
+
+    // Trainer bewegen
+    let dx = 0, dy = 0;
+    if (!modalOpen) {
+      if (keys.has('ArrowLeft') || keys.has('KeyA')) dx -= 1;
+      if (keys.has('ArrowRight') || keys.has('KeyD')) dx += 1;
+      if (keys.has('ArrowUp') || keys.has('KeyW')) dy -= 1;
+      if (keys.has('ArrowDown') || keys.has('KeyS')) dy += 1;
+    }
+    if (dx || dy) {
+      moveTarget = null; chase = null;
+      const n = Math.hypot(dx, dy); dx /= n; dy /= n;
+    } else {
+      let tgt = null;
+      if (chase != null) {
+        const e = belt.find(b => b.uid === chase);
+        if (!e) chase = null;
+        else if (dist(player.x, player.y, e.x, BELT_Y) < 75) { tryBuy(e); chase = null; }
+        else tgt = { x: clamp(e.x + 14, 20, W - 20), y: MIN_Y + 4 };
+      } else if (moveTarget) tgt = moveTarget;
+      if (tgt) {
+        const ddx = tgt.x - player.x, ddy = tgt.y - player.y, d = Math.hypot(ddx, ddy);
+        if (d < 4) { moveTarget = null; } else { dx = ddx / d; dy = ddy / d; }
+      }
+    }
+    player.moving = !!(dx || dy);
+    player.x = clamp(player.x + dx * PLAYER_SPEED * dt, 20, W - 20);
+    player.y = clamp(player.y + dy * PLAYER_SPEED * dt, MIN_Y, H - 12);
+
+    // Neue Spieler laufen zu ihrem Platz
+    for (let i = walkers.length - 1; i >= 0; i--) {
+      const w = walkers[i], p = slotPos(w.slot);
+      const ddx = p.kx - w.x, ddy = p.ky - w.y, d = Math.hypot(ddx, ddy), step = 215 * dt;
+      if (d <= step) walkers.splice(i, 1);
+      else { w.x += ddx / d * step; w.y += ddy / d * step; }
+    }
+
+    // Einkommen und Einsammeln
+    for (let i = 0; i < S.slots.length; i++) {
+      const s = S.slots[i];
+      if (!s) continue;
+      if (!walkers.some(w => w.slot === i)) s.acc += incomeOf(s) * real;
+      if (s.acc >= 1 && time - lastCollect[i] > 0.45) {
+        const p = slotPos(i);
+        if (dist(player.x, player.y, p.px, p.py) < 32) {
+          S.money += s.acc;
+          floats.push({ x: p.px, y: p.py - 30, text: '+' + fmt(s.acc), color: '#ffc93c', life: 1 });
+          s.acc = 0; lastCollect[i] = time;
+          beep(980, 0.07, 'square', 0.03, 1.4);
+        }
+      }
+    }
+
+    // Niemand soll festhängen
+    if (owned() === 0 && S.money < 20 && walkers.length === 0) {
+      S.money = 20;
+      toast('Der Verein schenkt dir 20 Startgeld.');
+    }
+
+    for (let i = floats.length - 1; i >= 0; i--) { floats[i].life -= dt * 0.9; if (floats[i].life <= 0) floats.splice(i, 1); }
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const p = sparks[i];
+      p.life -= dt; p.vy += 420 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.life <= 0) sparks.splice(i, 1);
+    }
+  }
+
+  // ---------- Zeichnen ----------
+  let scale = 1;
+  const FONT = '"Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif';
+  const DISPLAY = '"Bungee", "Arial Black", Impact, sans-serif';
+
+  function fit() {
+    const r = stage.getBoundingClientRect();
+    const s = Math.max(0.2, Math.min(r.width / W, (r.height || H) / H));
+    const cw = Math.floor(W * s), ch = Math.floor(H * s);
+    canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.round(cw * dpr)); canvas.height = Math.max(1, Math.round(ch * dpr));
+    scale = canvas.width / W;
+  }
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function circ(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+  function seg(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+  function oval(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); }
+  function label(txt, x, y, font, fill, align) {
+    ctx.font = font; ctx.textAlign = align || 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(4,16,10,0.8)';
+    ctx.strokeText(txt, x, y);
+    ctx.fillStyle = fill; ctx.fillText(txt, x, y);
+  }
+  function isLight(c) {
+    if (typeof c !== 'string' || c[0] !== '#' || c.length !== 7) return true;
+    const r = parseInt(c.slice(1, 3), 16), g = parseInt(c.slice(3, 5), 16), b = parseInt(c.slice(5, 7), 16);
+    return 0.299 * r + 0.587 * g + 0.114 * b > 150;
+  }
+  function tierColor(t) {
+    const c = TIERS[t].color;
+    return c === 'rainbow' ? 'hsl(' + ((time * 140 + 180) % 360) + ' 95% 68%)' : c;
+  }
+  function jerseyColor(d, variant) {
+    if (variant === 'g') return '#ffcf33';
+    if (variant === 'd') return '#8be9ff';
+    if (d.jersey === 'rainbow') return 'hsl(' + ((time * 140) % 360) + ' 95% 62%)';
+    return d.jersey;
+  }
+
+  function drawKicker(x, y, d, variant, moving, phase, glow, withBall) {
+    ctx.save();
+    ctx.translate(x, y);
+    const sw = moving ? Math.sin(time * 11 + phase) * 5 : 0;
+    const bob = moving ? Math.abs(Math.sin(time * 11 + phase)) * 1.5 : 0;
+    ctx.lineCap = 'round';
+    if (glow) { ctx.globalAlpha = 0.4; ctx.fillStyle = glow; oval(0, 1, 18, 6); ctx.globalAlpha = 1; }
+    // Beine und Schuhe
+    ctx.strokeStyle = d.skin; ctx.lineWidth = 4.5;
+    seg(-4, -13, -4 + sw, -4); seg(4, -13, 4 - sw, -4);
+    ctx.fillStyle = '#15171a';
+    oval(-3 + sw, -2, 4.2, 2.6); oval(5 - sw, -2, 4.2, 2.6);
+    if (withBall) {
+      ctx.fillStyle = '#ffffff'; circ(13 + sw * 0.6, -4, 3.8);
+      ctx.strokeStyle = '#15171a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(13 + sw * 0.6, -4, 3.8, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#15171a'; circ(13 + sw * 0.6, -4, 1.3);
+    }
+    ctx.translate(0, -bob);
+    // Hose
+    ctx.fillStyle = d.shorts; rr(-8, -20, 16, 9, 2); ctx.fill();
+    // Arme
+    const jc = jerseyColor(d, variant);
+    ctx.strokeStyle = jc; ctx.lineWidth = 5;
+    seg(-9, -30, -13 - sw * 0.5, -23); seg(9, -30, 13 + sw * 0.5, -23);
+    const keeper = d.pos === 'TW';
+    ctx.fillStyle = keeper ? '#ffe14d' : d.skin;
+    circ(-13 - sw * 0.5, -21, keeper ? 3.8 : 2.5); circ(13 + sw * 0.5, -21, keeper ? 3.8 : 2.5);
+    // Trikot mit Rückennummer
+    ctx.fillStyle = jc; rr(-9, -35, 18, 18, 4); ctx.fill();
+    if (d.num !== '') {
+      ctx.fillStyle = isLight(jc) ? '#15171a' : '#ffffff';
+      ctx.font = '700 9px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(String(d.num), 0, -22.5);
+    }
+    // Kopf
+    ctx.fillStyle = d.skin; circ(0, -42, 8.5);
+    ctx.fillStyle = d.hair;
+    ctx.beginPath(); ctx.arc(0, -43.5, 8.6, Math.PI * 1.04, Math.PI * 1.96); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#15171a'; circ(-3, -41, 1.2); circ(3, -41, 1.2);
+    // Funkeln bei Gold und Diamant
+    if (variant !== 'n') {
+      ctx.fillStyle = '#ffffff';
+      for (let k = 0; k < 3; k++) {
+        const a = time * 2.2 + k * 2.1 + phase;
+        const px = Math.cos(a) * 16, py = -27 + Math.sin(a * 1.3) * 15, s = 1.6 + Math.sin(a * 3) * 1;
+        ctx.beginPath();
+        ctx.moveTo(px, py - s * 2); ctx.lineTo(px + s, py); ctx.lineTo(px, py + s * 2); ctx.lineTo(px - s, py);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  const TRAINER = { skin: '#e0a878', hair: '#1c1c1c', shorts: '#1b2a4a', jersey: '#22335c', num: '', pos: '' };
+  function drawPlayer() {
+    ctx.strokeStyle = 'rgba(241,245,236,0.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(player.x, player.y + 1, 19, 7, 0, 0, Math.PI * 2); ctx.stroke();
+    drawKicker(player.x, player.y, TRAINER, 'n', player.moving, 0, null, false);
+    // Kappe und Pfeife
+    ctx.fillStyle = '#ff5a4f';
+    ctx.beginPath(); ctx.arc(player.x, player.y - 44, 8.8, Math.PI, Math.PI * 2); ctx.closePath(); ctx.fill();
+    rr(player.x - 2, player.y - 46, 14, 3, 1.5); ctx.fill();
+    ctx.fillStyle = '#ffc93c'; circ(player.x, player.y - 30, 2);
+    label('DU', player.x, player.y - 58, '700 12px ' + FONT, '#f1f5ec');
+  }
+
+  function drawPitch() {
+    for (let i = 0; i < 10; i++) { ctx.fillStyle = i % 2 ? '#1d7a40' : '#1a6f3a'; ctx.fillRect(i * 90, 0, 90, H); }
+    ctx.strokeStyle = 'rgba(241,245,236,0.5)'; ctx.lineWidth = 3;
+    ctx.strokeRect(10, 176, W - 20, 206);
+    seg(10, 279, W - 10, 279);
+    ctx.beginPath(); ctx.arc(W / 2, 279, 62, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(241,245,236,0.6)'; circ(W / 2, 279, 4);
+
+    // Spielertunnel mit Laufband
+    ctx.fillStyle = 'rgba(6,20,14,0.5)'; ctx.fillRect(0, 0, W, 166);
+    ctx.fillStyle = '#26352e'; ctx.fillRect(0, 128, W, 34);
+    ctx.strokeStyle = 'rgba(241,245,236,0.16)'; ctx.lineWidth = 3;
+    const off = beltOff % 36;
+    for (let x = -36 + off; x < W + 36; x += 36) { seg(x, 134, x + 10, 145); seg(x + 10, 145, x, 156); }
+    ctx.fillStyle = '#0b1512';
+    rr(-12, 92, 34, 74, 10); ctx.fill(); rr(W - 22, 92, 34, 74, 10); ctx.fill();
+    ctx.fillStyle = 'rgba(241,245,236,0.85)'; ctx.font = '13px ' + DISPLAY; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('SPIELERTUNNEL', 14, 22);
+    const tw1 = ctx.measureText('SPIELERTUNNEL').width;
+    ctx.fillStyle = 'rgba(241,245,236,0.6)'; ctx.font = '600 12px ' + FONT;
+    ctx.fillText('Anklicken oder E = kaufen', 24 + tw1, 22);
+
+    // Kader
+    ctx.fillStyle = 'rgba(8,26,18,0.5)'; rr(8, 392, W - 16, 242, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(241,245,236,0.35)'; ctx.lineWidth = 2; rr(8, 392, W - 16, 242, 8); ctx.stroke();
+    ctx.fillStyle = 'rgba(241,245,236,0.85)'; ctx.font = '13px ' + DISPLAY; ctx.textAlign = 'left';
+    const kt = 'DEIN KADER ' + owned() + '/' + unlocked();
+    ctx.fillText(kt, 20, 412);
+    const tw2 = ctx.measureText(kt).width;
+    ctx.fillStyle = 'rgba(241,245,236,0.6)'; ctx.font = '600 12px ' + FONT;
+    ctx.fillText('Anklicken = verkaufen · über Münzen laufen = Geld holen', 30 + tw2, 412);
+  }
+
+  function drawSlots() {
+    const open = unlocked(), hl = ownTarget();
+    for (let i = 0; i < 10; i++) {
+      const p = slotPos(i), s = S.slots[i];
+      const bx = p.cx - 82, by = p.ky - 56, bw = 164, bh = 66;
+      if (i >= open) {
+        ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(241,245,236,0.2)'; ctx.lineWidth = 1.5;
+        rr(bx, by, bw, bh, 6); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(241,245,236,0.45)'; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
+        ctx.fillText('Frei ab ' + LIGEN[i - 5], p.cx, p.ky - 18);
+        continue;
+      }
+      if (!s) {
+        ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(241,245,236,0.45)'; ctx.lineWidth = 1.5;
+        rr(bx, by, bw, bh, 6); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(241,245,236,0.6)'; ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center';
+        ctx.fillText('Freier Platz', p.cx, p.ky - 18);
+        continue;
+      }
+      const d = BY_ID[s.id], tc = tierColor(d.tier);
+      ctx.fillStyle = 'rgba(241,245,236,0.06)'; rr(bx, by, bw, bh, 6); ctx.fill();
+      ctx.strokeStyle = tc; ctx.lineWidth = i === hl ? 3.5 : 1.5; rr(bx, by, bw, bh, 6); ctx.stroke();
+
+      // Münzfeld
+      const has = s.acc >= 1;
+      if (has) {
+        const pulse = 1 + Math.sin(time * 5 + i) * 0.06;
+        ctx.fillStyle = '#b8860b'; circ(p.px, p.py, 18 * pulse);
+        ctx.fillStyle = '#ffc93c'; circ(p.px, p.py - 1.5, 16 * pulse);
+        ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.px, p.py - 1.5, 10 * pulse, 0, Math.PI * 2); ctx.stroke();
+        label(fmt(s.acc), p.px, p.py - 26, '700 14px ' + FONT, '#ffc93c');
+      } else {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,201,60,0.5)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.px, p.py, 16, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      if (!walkers.some(w => w.slot === i)) drawKicker(p.kx, p.ky, d, s.variant, false, i, tc, false);
+      label(d.name, p.cx, p.ky + 24, '700 12px ' + FONT, tc);
+      label('+' + fmt(incomeOf(s)) + '/s', p.cx, p.ky + 38, '600 12px ' + FONT, '#f1f5ec');
+    }
+  }
+
+  function drawBelt() {
+    const near = chase != null ? belt.find(b => b.uid === chase) : nearestBelt(115);
+    for (const b of belt) {
+      const tc = tierColor(b.def.tier);
+      const price = priceOf(b.def, b.variant), can = S.money >= price;
+      const ny = b.row ? 44 : 76;
+      if (b.row) { ctx.strokeStyle = 'rgba(241,245,236,0.25)'; ctx.lineWidth = 1; seg(b.x, ny + 18, b.x, BELT_Y - 54); }
+      if (b === near) {
+        ctx.strokeStyle = '#f1f5ec'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(b.x, BELT_Y + 1, 22, 8, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      drawKicker(b.x, BELT_Y, b.def, b.variant, true, b.phase, tc, true);
+      label(b.def.name, b.x, ny, '700 12px ' + FONT, tc);
+      label(fmt(price) + ' · +' + fmt(b.def.inc * VARIANTS[b.variant].im * (1 + S.reb)) + '/s', b.x, ny + 14,
+        '700 12px ' + FONT, can ? '#ffc93c' : 'rgba(241,245,236,0.6)');
+    }
+  }
+
+  function drawEvent() {
+    if (!EV) return;
+    const e = EVENTS[EV.type], w = 430, x = (W - w) / 2, y = 182;
+    ctx.fillStyle = 'rgba(11,21,18,0.88)'; rr(x, y, w, 42, 6); ctx.fill();
+    ctx.strokeStyle = '#ffc93c'; ctx.lineWidth = 2; rr(x, y, w, 42, 6); ctx.stroke();
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffc93c'; ctx.font = '14px ' + DISPLAY;
+    ctx.fillText(e.title, x + 12, y + 18);
+    ctx.fillStyle = '#f1f5ec'; ctx.font = '600 13px ' + FONT;
+    ctx.fillText(e.text, x + 12, y + 33);
+    ctx.textAlign = 'right'; ctx.font = '16px ' + DISPLAY;
+    ctx.fillText(Math.ceil(EV.t) + 's', x + w - 12, y + 27);
+    ctx.fillStyle = '#ffc93c';
+    ctx.fillRect(x + 6, y + 38, (w - 12) * clamp(EV.t / e.dur, 0, 1), 2);
+  }
+  function drawBall() {
+    if (!ball) return;
+    if (ball.t < 3 && Math.floor(time * 8) % 2) return; // blinkt, bevor er verschwindet
+    ctx.globalAlpha = 0.35; ctx.fillStyle = '#ffc93c'; circ(ball.x, ball.y, 20 + Math.sin(time * 6) * 3);
+    ctx.globalAlpha = 1; circ(ball.x, ball.y, 11);
+    ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, 11, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#b8860b'; circ(ball.x, ball.y, 3.5);
+    label(Math.ceil(ball.t) + 's', ball.x, ball.y - 18, '700 12px ' + FONT, '#ffc93c');
+  }
+
+  function draw() {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    drawPitch();
+    drawEvent();
+    drawSlots();
+    drawBelt();
+    for (const w of walkers) {
+      const s = S.slots[w.slot];
+      if (s) drawKicker(w.x, w.y, BY_ID[s.id], s.variant, true, w.phase, tierColor(BY_ID[s.id].tier), false);
+    }
+    if (moveTarget) {
+      ctx.strokeStyle = 'rgba(241,245,236,0.6)'; ctx.lineWidth = 2;
+      seg(moveTarget.x - 5, moveTarget.y - 5, moveTarget.x + 5, moveTarget.y + 5);
+      seg(moveTarget.x + 5, moveTarget.y - 5, moveTarget.x - 5, moveTarget.y + 5);
+    }
+    drawBall();
+    drawPlayer();
+    for (const p of sparks) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.fillRect(p.x - 3, p.y - 3, 6, 6); }
+    ctx.globalAlpha = 1;
+    for (const f of floats) {
+      ctx.globalAlpha = clamp(f.life * 1.6, 0, 1);
+      label(f.text, f.x, f.y - (1 - f.life) * 34, '700 16px ' + FONT, f.color);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------- Anzeigetafel und Spielerkarte ----------
+  function setText(el, t) { if (el.textContent !== t) el.textContent = t; }
+  function hud() {
+    setText($money, fmt(S.money));
+    setText($rate, '+' + fmt(totalRate()) + '/s');
+    setText($liga, LIGEN[S.reb] + ' ×' + (S.reb + 1));
+    const sec = Math.ceil(S.pity);
+    setText($pity, Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'));
+    setText($mute, S.mute ? 'Ton: aus' : 'Ton: an');
+    if (!$goats.hidden) renderGoats();
+    if (!$pen.hidden) penInfo();
+    $penBtn.classList.toggle('ready', penWait() <= 0);
+    if (S.reb >= ASC_COST.length) {
+      setText($ascLabel, 'Höchste Liga'); setText($ascSub, 'Du bist ganz oben');
+      $ascBar.style.width = '100%'; $asc.classList.remove('ready');
+    } else {
+      const cost = ASC_COST[S.reb], ok = S.money >= cost;
+      setText($ascLabel, 'Aufstieg: ' + LIGEN[S.reb + 1]);
+      setText($ascSub, ok ? 'Bereit! Jetzt aufsteigen' : fmt(cost) + ' nötig');
+      $ascBar.style.width = Math.floor(clamp(S.money / cost, 0, 1) * 100) + '%';
+      $asc.classList.toggle('ready', ok);
+    }
+  }
+
+  let cardKey = '';
+  function tierTag(d, variant) {
+    const c = TIERS[d.tier].color === 'rainbow' ? '#ff9df5' : TIERS[d.tier].color;
+    const v = VARIANTS[variant].label ? ' · ' + VARIANTS[variant].label + ' ×' + VARIANTS[variant].im : '';
+    return '<span class="tier" style="--c:' + c + '">' + TIERS[d.tier].name + ' · ' + d.club + ' · ' + POS[d.pos] + v + '</span>';
+  }
+  // Die Leiste unten bleibt leer und gleich hoch. Sie zeigt nur etwas, wenn ein eigener Spieler angeklickt ist.
+  function card() {
+    if (selected >= 0 && !S.slots[selected]) selected = -1;
+    const oi = selected;
+    if (sellArmed >= 0 && sellArmed !== oi) sellArmed = -1;
+    let key = 'none', html = '';
+    if (oi >= 0) {
+      const s = S.slots[oi], d = BY_ID[s.id], armed = sellArmed === oi;
+      key = 'own:' + oi + ':' + s.id + ':' + s.variant + ':' + S.reb + ':' + armed;
+      html = '<div class="who">' + tierTag(d, s.variant) +
+        '<span class="line"><strong>' + d.name + '</strong> <span class="meta">bringt <b>+' + fmt(incomeOf(s)) + '/s</b></span></span></div>' +
+        '<button type="button" data-act="sell" class="danger">' +
+        (armed ? 'Wirklich verkaufen?' : 'Verkaufen für ' + fmt(Math.floor(s.paid * 0.4))) + '<kbd>V</kbd></button>';
+    }
+    if (key !== cardKey) { cardKey = key; $card.innerHTML = html; $card.classList.toggle('empty', oi < 0); }
+  }
+
+  // ---------- Start ----------
+  let last = 0, hudT = 0;
+  function loop(now) {
+    const real = clamp((now - last) / 1000, 0, 3600);
+    last = now;
+    update(Math.min(0.05, real), real);
+    draw();
+    hudT -= real;
+    if (hudT <= 0) { hudT = 0.12; hud(); card(); }
+    requestAnimationFrame(loop);
+  }
+
+  function start(data) {
+    let t = adopt(data);
+    if (t === false) {
+      let raw = null;
+      try { raw = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { raw = null; }
+      t = adopt(raw);
+    }
+    if (typeof t === 'number') {
+      const away = clamp((Date.now() - t) / 1000, 0, 3600);
+      if (away > 5) {
+        let sum = 0;
+        S.slots.forEach(s => { if (s) { const g = incomeOf(s) * away; s.acc += g; sum += g; } });
+        if (sum >= 1) toast('Während du weg warst, hat dein Kader ' + fmt(sum) + ' verdient.');
+      }
+    }
+    // Einmalige Parade: die nächsten Spieler im Tunnel sind alle Mbappé
+    if (S.mbV < PARADE_V) {
+      S.mbV = PARADE_V;
+      S.mbQ = PARADE_N;
+      toast(PARADE_N + '× ' + BY_ID[PARADE_ID].name + ' kommen durch den Tunnel!');
+      save();
+    }
+    // Einmaliges Geschenk in die Kasse
+    if (S.gift < GIFT_V) {
+      S.gift = GIFT_V;
+      S.money += GIFT_AMOUNT;
+      toast('Geschenk: ' + fmt(GIFT_AMOUNT) + ' für deine Kasse!');
+      save();
+    }
+    // Der Tunnel ist beim Start schon gefüllt
+    for (let i = 6; i >= 0; i--) { const b = spawn(false); b.x = 40 + i * 120; }
+
+    fit();
+    if (window.ResizeObserver) new ResizeObserver(fit).observe(stage);
+    window.addEventListener('resize', fit);
+    setInterval(save, 5000);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+    window.addEventListener('pagehide', save);
+    hud(); card();
+    last = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  const hot = window.claude && window.claude.hot;
+  if (hot && hot.snapshot) hot.snapshot(() => serialize());
+  if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>

@@ -1,0 +1,601 @@
+<title>Kopier-Chaos</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@500;700&family=Space+Mono:wght@700&display=swap">
+<style>
+  /* Layout: Zählerleiste oben wie das Display am Kopierer, darunter das Blatt (Canvas). Ein Bildschirm, nichts springt. */
+  :root {
+    color-scheme: light;
+    --desk: #dde4ec;
+    --paper: #fbfcfd;
+    --ink: #14161a;
+    --muted: #4d5868;
+    --cyan: #00a3e0;
+    --magenta: #e5007d;
+    --yellow: #ffd500;
+    --display: "Archivo Black", "Arial Black", Impact, sans-serif;
+    --body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-block: 12px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--desk);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    font-weight: 500;
+    overflow-x: hidden;
+  }
+
+  /* Zählerleiste */
+  .bar {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 22px;
+  }
+  .bar h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    /* Passerversatz wie bei einem schlecht eingestellten Druck */
+    text-shadow: 2px 2px 0 var(--cyan), -2px -1px 0 var(--magenta);
+  }
+  .counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin: 0;
+    flex: 1 1 280px;
+  }
+  .counts div { display: flex; align-items: baseline; gap: 8px; }
+  .counts dt {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .counts dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 20px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  button {
+    font: 700 15px/1.15 var(--body);
+    color: var(--ink);
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--yellow); }
+  button:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
+  button.go {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 18px;
+    padding: 10px 18px;
+    color: var(--paper);
+    background: var(--ink);
+  }
+  button.go:hover { background: var(--magenta); border-color: var(--magenta); }
+
+  /* Das Blatt */
+  .stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 220px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    background: var(--paper);
+    box-shadow: 0 2px 0 var(--ink), 0 10px 24px rgba(20, 22, 26, 0.18);
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .panel {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+    width: min(440px, calc(100% - 24px));
+    max-height: calc(100% - 12px);
+    overflow-y: auto;
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+    background: var(--paper);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 var(--cyan), 8px 8px 0 var(--magenta);
+  }
+  .panel h2 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 26px;
+    line-height: 1.1;
+    text-wrap: balance;
+  }
+  .panel p { margin: 0; line-height: 1.4; }
+  .panel ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; line-height: 1.35; }
+  .panel b { font-weight: 700; }
+  .panel .keys { font-size: 14px; color: var(--muted); }
+  .panel .go { justify-self: start; }
+
+  @media (max-width: 520px) {
+    .bar h1 { flex-basis: 100%; }
+    .counts dd { font-size: 17px; }
+    .panel h2 { font-size: 22px; }
+  }
+</style>
+
+<header class="bar">
+  <h1>Kopier-Chaos</h1>
+  <dl class="counts">
+    <div><dt>Punkte</dt><dd id="score">0000</dd></div>
+    <div><dt>Kopien</dt><dd id="copies">00</dd></div>
+    <div><dt>Rekord</dt><dd id="best">0000</dd></div>
+  </dl>
+  <button id="mute" type="button">Ton: an</button>
+</header>
+
+<main class="stage" id="stage">
+  <canvas id="sheet" width="720" height="540" aria-label="Spielfeld: ein Blatt Papier mit dem Original und seinen Kopien"></canvas>
+  <div class="panel" id="panel">
+    <h2 id="pTitle">Du bist das Original.</h2>
+    <p id="pText">Hol die gelben Tintentropfen. Für jeden Tropfen druckt der Kopierer eine Kopie von dir. Sie läuft genau deinen Weg nach, hin und zurück, für immer. Berührst du eine Kopie, ist Schluss.</p>
+    <ul id="pRules">
+      <li><b>Schnell sein lohnt sich:</b> Je schneller du beim Tropfen bist, desto mehr Punkte.</li>
+      <li><b>Papierstau:</b> Alle Kopien bleiben 4 Sekunden stehen.</li>
+      <li><b>Radierer:</b> Löscht die Kopie, die dir am nächsten ist.</li>
+    </ul>
+    <p class="keys">Steuern mit WASD oder Pfeiltasten. Oder Maus oder Finger gedrückt halten, das Original läuft hinterher.</p>
+    <button class="go" id="go" type="button">Start</button>
+  </div>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Werte ----------
+  const W = 720, H = 540, R = 13, SPEED = 235, STEP = 1 / 60;
+  const GRACE = 1.1;      // so lange ist eine frische Kopie noch harmlos
+  const JAM_TIME = 4;     // Papierstau in Sekunden
+  const BEST_KEY = 'kopier-chaos-rekord';
+  const INK = '#14161a', CYAN = '#00a3e0', MAG = '#e5007d', YEL = '#ffd500', PAPER = '#fbfcfd', GRID = '#d9e4ef', MUTED = '#4d5868';
+  const MONO = '"Space Mono", ui-monospace, Menlo, Consolas, monospace';
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('sheet'), ctx = canvas.getContext('2d'), stage = $('stage');
+  const $score = $('score'), $copies = $('copies'), $best = $('best'), $mute = $('mute');
+  const $panel = $('panel'), $pTitle = $('pTitle'), $pText = $('pText'), $pRules = $('pRules'), $go = $('go');
+
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+  const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // ---------- Zustand ----------
+  let mode = 'menu', time = 0, score = 0, drops = 0, best = 0, mute = false;
+  let player, seg, clones, drop, power, jam, floats, puffs, hit;
+  const keys = new Set();
+  let ptr = null;
+
+  try { best = Math.max(0, parseInt(localStorage.getItem(BEST_KEY), 10) || 0); } catch (e) { best = 0; }
+
+  function reset() {
+    player = { x: W / 2, y: H / 2, lx: 0, ly: 1 };
+    seg = [player.x, player.y];   // der Weg seit dem letzten Tropfen; daraus wird die nächste Kopie
+    clones = []; floats = []; puffs = [];
+    power = null; hit = null; jam = 0;
+    score = 0; drops = 0; time = 0;
+    placeDrop();
+  }
+
+  function placeDrop() {
+    let bx = 60, by = 60, bd = -1;
+    for (let i = 0; i < 40; i++) {
+      const x = 40 + Math.random() * (W - 80), y = 56 + Math.random() * (H - 100);
+      const d = dist(x, y, player.x, player.y);
+      if (d > bd) { bd = d; bx = x; by = y; }
+      if (d >= 200) break;
+    }
+    drop = { x: bx, y: by, age: 0 };
+  }
+  function placePower() {
+    for (let i = 0; i < 40; i++) {
+      const x = 40 + Math.random() * (W - 80), y = 56 + Math.random() * (H - 100);
+      if (dist(x, y, player.x, player.y) >= 130 && dist(x, y, drop.x, drop.y) >= 60) {
+        power = { type: Math.random() < 0.5 ? 'jam' : 'eraser', x, y, t: 9 };
+        return;
+      }
+    }
+  }
+
+  // ---------- Ton ----------
+  let ac = null;
+  function beep(freq, dur, type, vol, slide) {
+    if (mute) return;
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime;
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t0);
+      if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t0 + dur);
+      g.gain.setValueAtTime(vol || 0.04, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0); o.stop(t0 + dur);
+    } catch (e) { /* kein Ton verfügbar */ }
+  }
+
+  // ---------- Spielregeln ----------
+  function clonePos(c) { return { x: c.path[c.i * 2], y: c.path[c.i * 2 + 1] }; }
+
+  function collect() {
+    const pts = 10 + Math.max(0, Math.round(20 - drop.age * 5));
+    score += pts; drops++;
+    floats.push({ x: drop.x, y: drop.y - 20, text: '+' + pts, life: 1 });
+    // Der gelaufene Weg wird zur Kopie. Sie startet am Anfang des Wegs, also weit weg von dir.
+    const path = seg;
+    seg = [player.x, player.y];
+    if (path.length >= 4) {
+      clones.push({ path, n: path.length / 2, i: 0, dir: 1, born: time, ink: clones.length % 2 });
+      puffs.push({ x: path[0], y: path[1], life: 1, color: clones.length % 2 ? CYAN : MAG });
+    }
+    beep(740, 0.07, 'square', 0.04, 1.5);
+    placeDrop();
+    if (drops % 4 === 0 && !power) placePower();
+  }
+
+  function usePower() {
+    const p = power; power = null;
+    if (p.type === 'jam') {
+      jam = JAM_TIME;
+      floats.push({ x: p.x, y: p.y - 20, text: 'Papierstau!', life: 1.3 });
+      beep(180, 0.3, 'sawtooth', 0.05, 0.5);
+    } else {
+      let bi = -1, bd = Infinity;
+      clones.forEach((c, i) => { const q = clonePos(c), d = dist(q.x, q.y, player.x, player.y); if (d < bd) { bd = d; bi = i; } });
+      if (bi >= 0) {
+        const q = clonePos(clones[bi]);
+        puffs.push({ x: q.x, y: q.y, life: 1, color: clones[bi].ink ? MAG : CYAN });
+        clones.splice(bi, 1);
+        floats.push({ x: p.x, y: p.y - 20, text: 'Radiert!', life: 1.3 });
+      } else {
+        score += 15;
+        floats.push({ x: p.x, y: p.y - 20, text: '+15', life: 1 });
+      }
+      beep(520, 0.12, 'triangle', 0.05, 1.8);
+    }
+  }
+
+  function gameOver(x, y) {
+    mode = 'over'; hit = { x, y, t: 0 }; ptr = null; keys.clear();
+    const record = score > best;
+    if (record) { best = score; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) { /* ohne Speicher */ } }
+    beep(220, 0.35, 'sawtooth', 0.06, 0.4);
+    $pTitle.textContent = record ? 'Neuer Rekord!' : 'Erwischt!';
+    $pText.textContent = 'Eine Kopie hat dich berührt. Du hast ' + score + ' Punkte geholt und ' + clones.length +
+      (clones.length === 1 ? ' Kopie' : ' Kopien') + ' auf dem Blatt hinterlassen. Dein Rekord: ' + best + '.';
+    $pRules.hidden = true;
+    $go.textContent = 'Nochmal';
+    setTimeout(() => { if (mode === 'over') { $panel.hidden = false; $go.focus(); } }, 550);
+  }
+
+  function start() {
+    reset();
+    mode = 'play';
+    $panel.hidden = true;
+    canvas.focus && canvas.focus();
+    beep(440, 0.08, 'square', 0.04, 2);
+  }
+
+  function step() {
+    time += STEP;
+
+    // Original bewegen
+    let dx = 0, dy = 0;
+    if (keys.has('ArrowLeft') || keys.has('KeyA')) dx -= 1;
+    if (keys.has('ArrowRight') || keys.has('KeyD')) dx += 1;
+    if (keys.has('ArrowUp') || keys.has('KeyW')) dy -= 1;
+    if (keys.has('ArrowDown') || keys.has('KeyS')) dy += 1;
+    if (dx || dy) {
+      const n = Math.hypot(dx, dy); dx /= n; dy /= n;
+    } else if (ptr) {
+      const ddx = ptr.x - player.x, ddy = ptr.y - player.y, d = Math.hypot(ddx, ddy);
+      if (d > 3) { const sp = Math.min(1, d / (SPEED * STEP)); dx = ddx / d * sp; dy = ddy / d * sp; }
+    }
+    if (dx || dy) {
+      player.x = clamp(player.x + dx * SPEED * STEP, R, W - R);
+      player.y = clamp(player.y + dy * SPEED * STEP, R, H - R);
+      const n = Math.hypot(dx, dy); player.lx = dx / n; player.ly = dy / n;
+    }
+    seg.push(player.x, player.y);
+
+    // Kopien laufen ihren Weg hin und zurück
+    if (jam > 0) jam -= STEP;
+    else {
+      for (const c of clones) {
+        if (c.n < 2) continue;
+        c.i += c.dir;
+        if (c.i >= c.n - 1) { c.i = c.n - 1; c.dir = -1; }
+        else if (c.i <= 0) { c.i = 0; c.dir = 1; }
+      }
+    }
+    for (const c of clones) {
+      if (time - c.born < GRACE) continue;
+      const q = clonePos(c);
+      if (dist(q.x, q.y, player.x, player.y) < 2 * R - 5) { gameOver(q.x, q.y); return; }
+    }
+
+    drop.age += STEP;
+    if (dist(player.x, player.y, drop.x, drop.y) < R + 13) collect();
+    if (power) {
+      power.t -= STEP;
+      if (power.t <= 0) power = null;
+      else if (dist(player.x, player.y, power.x, power.y) < R + 15) usePower();
+    }
+  }
+
+  function effects(dt) {
+    for (let i = floats.length - 1; i >= 0; i--) { floats[i].life -= dt; if (floats[i].life <= 0) floats.splice(i, 1); }
+    for (let i = puffs.length - 1; i >= 0; i--) { puffs[i].life -= dt * 1.8; if (puffs[i].life <= 0) puffs.splice(i, 1); }
+    if (hit) hit.t += dt;
+  }
+
+  // ---------- Eingabe ----------
+  const MOVE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyA', 'KeyS', 'KeyD'];
+  window.addEventListener('keydown', ev => {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (MOVE_KEYS.includes(ev.code) && mode === 'play') { keys.add(ev.code); ev.preventDefault(); }
+  });
+  window.addEventListener('keyup', ev => keys.delete(ev.code));
+  window.addEventListener('blur', () => { keys.clear(); ptr = null; });
+
+  function toWorld(ev) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (ev.clientX - r.left) / r.width * W, y: (ev.clientY - r.top) / r.height * H };
+  }
+  canvas.addEventListener('pointerdown', ev => {
+    if (mode !== 'play') return;
+    ev.preventDefault();
+    ptr = toWorld(ev);
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* nicht nötig */ }
+  });
+  canvas.addEventListener('pointermove', ev => { if (ptr && mode === 'play') ptr = toWorld(ev); });
+  const release = () => { ptr = null; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+
+  $go.addEventListener('click', start);
+  $mute.addEventListener('click', () => { mute = !mute; $mute.textContent = mute ? 'Ton: aus' : 'Ton: an'; });
+
+  // ---------- Zeichnen ----------
+  let scale = 1;
+  function fit() {
+    const r = stage.getBoundingClientRect();
+    const s = Math.max(0.2, Math.min(r.width / W, (r.height || H) / H));
+    const cw = Math.floor(W * s), ch = Math.floor(H * s);
+    canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.round(cw * dpr)); canvas.height = Math.max(1, Math.round(ch * dpr));
+    scale = canvas.width / W;
+  }
+  function circ(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+  function seg2(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+
+  function drawSheet() {
+    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+    // Rechenkästchen
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 30; x < W; x += 30) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); }
+    for (let y = 30; y < H; y += 30) { ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); }
+    ctx.stroke();
+    // Schnittmarken in den Ecken
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
+    const m = 10, l = 16;
+    [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]].forEach(([x, y, sx, sy]) => {
+      seg2(x, y, x + l * sx, y); seg2(x, y, x, y + l * sy);
+    });
+    // Farbkontrollstreifen: Cyan, Magenta, Gelb, Schwarz
+    [CYAN, MAG, YEL, INK].forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(W - 86 + i * 14, 16, 11, 11); });
+    // Passkreuz
+    ctx.strokeStyle = INK; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(44, 22, 6, 0, Math.PI * 2); ctx.stroke();
+    seg2(34, 22, 54, 22); seg2(44, 12, 44, 32);
+    // Blattzeile
+    ctx.fillStyle = MUTED; ctx.font = '700 11px ' + MONO; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('ORIGINAL + ' + String(clones.length).padStart(2, '0') + ' KOPIEN', 34, H - 16);
+  }
+
+  function drawPaths() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    for (const c of clones) {
+      ctx.strokeStyle = c.ink ? MAG : CYAN; ctx.globalAlpha = 0.16;
+      ctx.beginPath(); ctx.moveTo(c.path[0], c.path[1]);
+      for (let k = 6; k < c.path.length; k += 6) ctx.lineTo(c.path[k], c.path[k + 1]);
+      ctx.lineTo(c.path[c.path.length - 2], c.path[c.path.length - 1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+    // Dein eigener Weg seit dem letzten Tropfen: daraus wird die nächste Kopie
+    if (mode === 'play' && seg.length >= 4) {
+      ctx.strokeStyle = INK; ctx.globalAlpha = 0.28; ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
+      ctx.beginPath(); ctx.moveTo(seg[0], seg[1]);
+      for (let k = 6; k < seg.length; k += 6) ctx.lineTo(seg[k], seg[k + 1]);
+      ctx.lineTo(player.x, player.y);
+      ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+  }
+
+  function eyes(x, y, lx, ly) {
+    ctx.fillStyle = PAPER;
+    circ(x - 4.6 + lx * 2.6, y - 2 + ly * 2.6, 3.7); circ(x + 4.6 + lx * 2.6, y - 2 + ly * 2.6, 3.7);
+    ctx.fillStyle = INK;
+    circ(x - 4.6 + lx * 4, y - 2 + ly * 4, 1.7); circ(x + 4.6 + lx * 4, y - 2 + ly * 4, 1.7);
+  }
+
+  function drawClone(c) {
+    const q = clonePos(c), fresh = time - c.born < GRACE;
+    const ni = clamp(c.i + c.dir, 0, c.n - 1);
+    let lx = c.path[ni * 2] - q.x, ly = c.path[ni * 2 + 1] - q.y;
+    const n = Math.hypot(lx, ly);
+    if (n > 0.01) { lx /= n; ly /= n; } else { lx = 0; ly = 0; }
+    const main = c.ink ? MAG : CYAN, other = c.ink ? CYAN : MAG;
+    ctx.save();
+    if (fresh) ctx.globalAlpha = 0.3 + 0.2 * Math.sin(time * 18);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = other; ctx.globalAlpha *= 0.45; circ(q.x + 3, q.y + 2, R);   // Passerversatz
+    ctx.globalAlpha = fresh ? 0.3 + 0.2 * Math.sin(time * 18) : 1;
+    ctx.fillStyle = main; circ(q.x, q.y, R);
+    ctx.globalCompositeOperation = 'source-over';
+    eyes(q.x, q.y, lx, ly);
+    ctx.restore();
+    if (fresh) {
+      ctx.strokeStyle = main; ctx.lineWidth = 1.5; ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.arc(q.x, q.y, R + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  function drawDrop() {
+    const x = drop.x, y = drop.y + (reducedMotion ? 0 : Math.sin(time * 4) * 2);
+    ctx.fillStyle = YEL; ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 15);
+    ctx.bezierCurveTo(x + 11, y - 2, x + 10, y + 11, x, y + 11);
+    ctx.bezierCurveTo(x - 10, y + 11, x - 11, y - 2, x, y - 15);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = PAPER; circ(x - 3, y + 2, 2.2);
+    // Bonus-Ring: läuft in 4 Sekunden ab
+    const left = clamp(1 - drop.age / 4, 0, 1);
+    if (left > 0 && mode === 'play') {
+      ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(drop.x, drop.y, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left); ctx.stroke();
+    }
+  }
+
+  function drawPower() {
+    if (!power) return;
+    if (power.t < 2.5 && Math.floor(time * 8) % 2) return; // blinkt, bevor es verschwindet
+    ctx.save();
+    ctx.translate(power.x, power.y);
+    ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    if (power.type === 'jam') {
+      ctx.rotate(-0.16);
+      ctx.fillStyle = PAPER; ctx.fillRect(-11, -14, 22, 28); ctx.strokeRect(-11, -14, 22, 28);
+      ctx.beginPath(); ctx.moveTo(-7, -6); ctx.lineTo(-2, -1); ctx.lineTo(-7, 4); ctx.lineTo(-2, 9);
+      ctx.moveTo(2, -6); ctx.lineTo(7, -1); ctx.lineTo(2, 4); ctx.lineTo(7, 9); ctx.stroke();
+    } else {
+      ctx.rotate(0.45);
+      ctx.fillStyle = CYAN; ctx.fillRect(-15, -8, 14, 16);
+      ctx.fillStyle = MAG; ctx.fillRect(-1, -8, 16, 16);
+      ctx.strokeRect(-15, -8, 30, 16);
+    }
+    ctx.restore();
+    ctx.fillStyle = INK; ctx.font = '700 11px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(power.type === 'jam' ? 'PAPIERSTAU' : 'RADIERER', power.x, power.y + 30);
+  }
+
+  function drawPlayer() {
+    ctx.fillStyle = INK; circ(player.x, player.y, R);
+    eyes(player.x, player.y, player.lx, player.ly);
+    ctx.strokeStyle = YEL; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(player.x, player.y, R + 3.5, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  function draw() {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    drawSheet();
+    drawPaths();
+    drawDrop();
+    drawPower();
+    for (const c of clones) drawClone(c);
+    drawPlayer();
+
+    for (const p of puffs) {
+      ctx.strokeStyle = p.color; ctx.lineWidth = 3; ctx.globalAlpha = clamp(p.life, 0, 1);
+      ctx.beginPath(); ctx.arc(p.x, p.y, R + (1 - p.life) * 26, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = '700 16px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    for (const f of floats) {
+      ctx.globalAlpha = clamp(f.life * 1.6, 0, 1);
+      const y = f.y - (1 - Math.min(1, f.life)) * 26;
+      ctx.lineWidth = 4; ctx.strokeStyle = PAPER; ctx.lineJoin = 'round'; ctx.strokeText(f.text, f.x, y);
+      ctx.fillStyle = INK; ctx.fillText(f.text, f.x, y);
+    }
+    ctx.globalAlpha = 1;
+
+    if (jam > 0 && mode === 'play') {
+      const w = 220, x = (W - w) / 2;
+      ctx.fillStyle = INK; ctx.fillRect(x, 14, w, 24);
+      ctx.fillStyle = YEL; ctx.fillRect(x + 3, 33, (w - 6) * clamp(jam / JAM_TIME, 0, 1), 2);
+      ctx.fillStyle = PAPER; ctx.font = '700 12px ' + MONO; ctx.textAlign = 'center';
+      ctx.fillText('PAPIERSTAU ' + Math.ceil(jam) + 's', W / 2, 29);
+    }
+    if (hit) {
+      ctx.strokeStyle = MAG; ctx.lineWidth = 4; ctx.globalAlpha = clamp(1 - hit.t * 1.6, 0, 1);
+      ctx.beginPath(); ctx.arc(hit.x, hit.y, R + hit.t * 120, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function hud() {
+    const s = String(score).padStart(4, '0'), c = String(clones.length).padStart(2, '0'), b = String(Math.max(best, score)).padStart(4, '0');
+    if ($score.textContent !== s) $score.textContent = s;
+    if ($copies.textContent !== c) $copies.textContent = c;
+    if ($best.textContent !== b) $best.textContent = b;
+  }
+
+  // ---------- Schleife ----------
+  let last = 0, acc = 0;
+  function loop(now) {
+    const dt = clamp((now - last) / 1000, 0, 0.1);
+    last = now;
+    if (mode === 'play') {
+      acc += dt;
+      while (acc >= STEP && mode === 'play') { step(); acc -= STEP; }
+    } else {
+      acc = 0;
+      if (mode === 'menu') time += dt;
+    }
+    effects(dt);
+    draw();
+    hud();
+    requestAnimationFrame(loop);
+  }
+
+  reset();
+  fit();
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(stage);
+  window.addEventListener('resize', fit);
+  last = performance.now();
+  requestAnimationFrame(loop);
+})();
+</script>

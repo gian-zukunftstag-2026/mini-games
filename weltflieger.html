@@ -1,0 +1,1058 @@
+<title>Weltflieger</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@700&display=swap">
+<style>
+  /* Layout: Instrumentenleiste oben, Karte oder Flug (Canvas) in der Mitte, feste Bedienleiste unten. Nichts springt. */
+  :root {
+    color-scheme: light;
+    --page: #e6edf3;
+    --panel: #ffffff;
+    --ink: #12233d;
+    --muted: #4b5b75;
+    --line: #c2cedc;
+    --accent: #ff7a1a;
+    --danger: #c81e3a;
+    --good: #17804a;
+    --veil: rgba(18, 35, 61, 0.6);
+    --body: "B612", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "B612 Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-block: 10px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 15px;
+    overflow-x: hidden;
+  }
+
+  .strip {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 20px;
+    padding: 8px 14px;
+    background: var(--panel);
+    border: 2px solid var(--ink);
+    border-radius: 6px;
+  }
+  .strip h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.01em; }
+  .strip h1 span { color: var(--accent); }
+  .vals { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; flex: 1 1 320px; min-width: 0; }
+  .vals div { min-width: 84px; }
+  .vals dt {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .vals dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 17px;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  button {
+    font: 700 14px/1.15 var(--body);
+    color: var(--ink);
+    background: var(--panel);
+    border: 2px solid var(--ink);
+    border-radius: 5px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--page); }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.go { background: var(--accent); }
+  button.go:hover { filter: brightness(1.08); background: var(--accent); }
+
+  .stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 200px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    box-sizing: border-box;
+    border: 2px solid var(--ink);
+    border-radius: 6px;
+    background: var(--panel);
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .toast {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100% - 24px);
+    padding: 7px 14px;
+    background: var(--ink);
+    color: var(--panel);
+    border-radius: 5px;
+    font-weight: 700;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Bedienleiste: immer gleich hoch */
+  .deck {
+    flex: none;
+    box-sizing: border-box;
+    height: 60px;
+    overflow: hidden;
+    padding: 8px 14px;
+    background: var(--panel);
+    border: 2px solid var(--ink);
+    border-radius: 6px;
+  }
+  .route { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 100%; }
+  .rtext { display: grid; gap: 1px; min-width: 0; flex: 1 1 0; }
+  .rtext > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rtext strong { font-size: 16px; }
+  .rtext span { color: var(--muted); font-size: 13px; }
+  .route button { flex: none; }
+  .pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; height: 100%; }
+  .pads button { padding: 4px 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
+
+  /* Fenster */
+  .modal {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: var(--veil);
+  }
+  .box {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 480px;
+    max-height: 100%;
+    overflow-y: auto;
+    display: grid;
+    gap: 12px;
+    padding: 18px;
+    background: var(--panel);
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+  }
+  .box.wide { max-width: 620px; }
+  .box h2 { margin: 0; font-size: 21px; text-wrap: balance; }
+  .box p { margin: 0; line-height: 1.45; color: var(--muted); }
+  .box p b { color: var(--ink); }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .rowbtn { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  .bill { display: grid; gap: 0; }
+  .bill div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .bill div span:last-child { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bill .sum { border-bottom: 0; font-weight: 700; font-size: 17px; }
+  .bill .plus span:last-child { color: var(--good); }
+  .bill .minus span:last-child { color: var(--danger); }
+  .fleet { display: grid; }
+  .craft {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .craft .info { display: grid; gap: 1px; min-width: 0; flex: 1 1 220px; }
+  .craft .info b { font-size: 16px; }
+  .craft .info small { color: var(--muted); font-size: 13px; line-height: 1.35; }
+  .craft button { flex: none; white-space: nowrap; }
+
+  @media (max-width: 560px) {
+    .strip h1 { flex-basis: 100%; }
+    .vals { gap: 6px 14px; }
+    .vals div { min-width: 70px; }
+    .vals dd { font-size: 15px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<header class="strip">
+  <h1>Welt<span>flieger</span></h1>
+  <dl class="vals">
+    <div><dt>Konto</dt><dd id="money">0</dd></div>
+    <div><dt>Flugzeug</dt><dd id="planeName">Spatz</dd></div>
+    <div><dt>Standort</dt><dd id="where">ZRH</dd></div>
+    <div><dt>Flüge</dt><dd id="flights">0</dd></div>
+  </dl>
+  <div class="actions">
+    <button id="hangarBtn" type="button">Hangar</button>
+    <button id="mute" type="button">Ton: an</button>
+    <button id="resetBtn" type="button">Neu anfangen</button>
+  </div>
+</header>
+
+<main class="stage" id="stage">
+  <canvas id="view" width="960" height="540" aria-label="Weltkarte und Flugansicht"></canvas>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</main>
+
+<footer class="deck">
+  <div class="route" id="routeBox">
+    <div class="rtext"><strong id="rTitle"></strong><span id="rMeta"></span></div>
+    <button id="depart" type="button" class="go">Abflug</button>
+  </div>
+  <div class="pads" id="pads" hidden>
+    <button type="button" data-key="KeyA">Links</button>
+    <button type="button" data-key="KeyD">Rechts</button>
+    <button type="button" data-key="KeyS">Langsamer</button>
+    <button type="button" data-key="KeyW">Schneller</button>
+  </div>
+</footer>
+
+<div class="modal" id="hangar" hidden>
+  <div class="box wide" role="dialog" aria-modal="true" aria-labelledby="hTitle">
+    <div class="head">
+      <h2 id="hTitle">Hangar</h2>
+      <button id="hClose" type="button">Schliessen</button>
+    </div>
+    <p>Schnellere Flugzeuge kommen in zwei Minuten weiter und bringen mehr Lohn pro Kilometer.</p>
+    <div class="fleet" id="fleet"></div>
+  </div>
+</div>
+
+<div class="modal" id="dlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+    <h2 id="dTitle"></h2>
+    <div id="dBody" style="display:grid;gap:12px"></div>
+    <div class="rowbtn">
+      <button id="dNo" type="button">Abbrechen</button>
+      <button id="dOk" type="button" class="go"></button>
+    </div>
+  </div>
+</div>
+
+<script src="weltflieger-welt.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Feste Werte ----------
+  const W = 960, H = 540, CX = W / 2, CY = H * 0.54;
+  const RAD = Math.PI / 180;
+  const SCREEN_SPEED = 72;          // Pixel pro Sekunde bei 100 % Schub
+  const SAVE_KEY = 'weltflieger-v1', BEST_KEY = 'weltflieger-rekord';
+  const C = {
+    sea: '#bcdff3', seaTick: '#a5d0ea', land: '#d3e6b6', landDark: '#bfd8a0', landLight: '#e2efcb',
+    ink: '#12233d', muted: '#4b5b75', accent: '#ff7a1a', panel: '#ffffff', danger: '#c81e3a', good: '#17804a',
+    storm: 'rgba(48,56,82,0.86)', stormCore: 'rgba(28,32,52,0.9)', gold: '#ffc400',
+  };
+  const FONT = '"B612", system-ui, sans-serif', MONO = '"B612 Mono", ui-monospace, Menlo, monospace';
+
+  // Echte Städte mit ihrem Flughafen-Kürzel: [Kürzel, Name, Länge, Breite]
+  const CITIES = [
+    ['ZRH', 'Zürich', 8.55, 47.37], ['GVA', 'Genf', 6.14, 46.2], ['CDG', 'Paris', 2.35, 48.86], ['LHR', 'London', -0.13, 51.51],
+    ['AMS', 'Amsterdam', 4.9, 52.37], ['BRU', 'Brüssel', 4.35, 50.85], ['FRA', 'Frankfurt', 8.68, 50.11], ['MUC', 'München', 11.58, 48.14],
+    ['BER', 'Berlin', 13.4, 52.52], ['HAM', 'Hamburg', 10.0, 53.55], ['VIE', 'Wien', 16.37, 48.21], ['PRG', 'Prag', 14.44, 50.08],
+    ['MXP', 'Mailand', 9.19, 45.46], ['FCO', 'Rom', 12.5, 41.9], ['BCN', 'Barcelona', 2.17, 41.39], ['MAD', 'Madrid', -3.7, 40.42],
+    ['LIS', 'Lissabon', -9.14, 38.72], ['DUB', 'Dublin', -6.26, 53.35], ['CPH', 'Kopenhagen', 12.57, 55.68], ['ARN', 'Stockholm', 18.07, 59.33],
+    ['OSL', 'Oslo', 10.75, 59.91], ['HEL', 'Helsinki', 24.94, 60.17], ['WAW', 'Warschau', 21.01, 52.23], ['BUD', 'Budapest', 19.04, 47.5],
+    ['ATH', 'Athen', 23.73, 37.98], ['IST', 'Istanbul', 28.98, 41.01], ['SVO', 'Moskau', 37.62, 55.76], ['KEF', 'Reykjavik', -21.9, 64.15],
+    ['CAI', 'Kairo', 31.24, 30.04], ['CMN', 'Casablanca', -7.59, 33.57], ['TUN', 'Tunis', 10.18, 36.8], ['DXB', 'Dubai', 55.27, 25.2],
+    ['TLV', 'Tel Aviv', 34.78, 32.08], ['DOH', 'Doha', 51.53, 25.29], ['NBO', 'Nairobi', 36.82, -1.29], ['LOS', 'Lagos', 3.38, 6.52],
+    ['DSS', 'Dakar', -17.47, 14.72], ['ADD', 'Addis Abeba', 38.75, 9.03], ['JNB', 'Johannesburg', 28.05, -26.2], ['CPT', 'Kapstadt', 18.42, -33.92],
+    ['DEL', 'Delhi', 77.1, 28.6], ['BOM', 'Mumbai', 72.88, 19.08], ['CMB', 'Colombo', 79.86, 6.93], ['KTM', 'Kathmandu', 85.32, 27.72],
+    ['TAS', 'Taschkent', 69.24, 41.3], ['BKK', 'Bangkok', 100.5, 13.76], ['SIN', 'Singapur', 103.82, 1.35], ['CGK', 'Jakarta', 106.85, -6.21],
+    ['MNL', 'Manila', 120.98, 14.6], ['HKG', 'Hongkong', 114.17, 22.32], ['PVG', 'Shanghai', 121.47, 31.23], ['PEK', 'Peking', 116.4, 39.9],
+    ['ICN', 'Seoul', 126.98, 37.57], ['HND', 'Tokio', 139.69, 35.69], ['SYD', 'Sydney', 151.21, -33.87], ['MEL', 'Melbourne', 144.96, -37.81],
+    ['PER', 'Perth', 115.86, -31.95], ['AKL', 'Auckland', 174.76, -36.85], ['NAN', 'Fidschi', 177.44, -17.8], ['HNL', 'Honolulu', -157.86, 21.31],
+    ['ANC', 'Anchorage', -149.9, 61.22], ['YVR', 'Vancouver', -123.12, 49.28], ['SEA', 'Seattle', -122.33, 47.61], ['SFO', 'San Francisco', -122.42, 37.77],
+    ['LAX', 'Los Angeles', -118.24, 34.05], ['DEN', 'Denver', -104.99, 39.74], ['DFW', 'Dallas', -96.8, 32.78], ['ORD', 'Chicago', -87.63, 41.88],
+    ['ATL', 'Atlanta', -84.39, 33.75], ['MIA', 'Miami', -80.19, 25.76], ['JFK', 'New York', -74.0, 40.71], ['YYZ', 'Toronto', -79.38, 43.65],
+    ['YUL', 'Montreal', -73.57, 45.5], ['MEX', 'Mexiko-Stadt', -99.13, 19.43], ['HAV', 'Havanna', -82.37, 23.11], ['PTY', 'Panama', -79.52, 8.98],
+    ['CCS', 'Caracas', -66.9, 10.48], ['BOG', 'Bogotá', -74.07, 4.71], ['LIM', 'Lima', -77.04, -12.05], ['SCL', 'Santiago', -70.67, -33.45],
+    ['EZE', 'Buenos Aires', -58.38, -34.6], ['GRU', 'São Paulo', -46.63, -23.55], ['GIG', 'Rio de Janeiro', -43.17, -22.91],
+  ].map(a => ({ code: a[0], name: a[1], lon: a[2], lat: a[3] }));
+  const CITY = Object.fromEntries(CITIES.map(c => [c.code, c]));
+
+  // Reichweite = so weit kommt das Flugzeug in zwei Minuten Spielzeit
+  const PLANES = [
+    { id: 'spatz', name: 'Spatz', kind: 'Propellerflugzeug', kmh: 230, range: 750, rate: 2, price: 0, turn: 1.5, len: 34, span: 40, sweep: 0, wid: 8, body: '#ffffff', wing: '#f2b632', prop: true },
+    { id: 'kranich', name: 'Kranich', kind: 'Turboprop', kmh: 510, range: 1600, rate: 4, price: 1000, turn: 1.4, len: 40, span: 46, sweep: 2, wid: 9, body: '#ffffff', wing: '#3d8bd4', prop: true },
+    { id: 'falke', name: 'Falke', kind: 'Regionaljet', kmh: 820, range: 3200, rate: 8, price: 6000, turn: 1.3, len: 44, span: 42, sweep: 9, wid: 9, body: '#ffffff', wing: '#d9534f' },
+    { id: 'albatros', name: 'Albatros', kind: 'Mittelstreckenjet', kmh: 870, range: 6500, rate: 16, price: 25000, turn: 1.2, len: 50, span: 50, sweep: 12, wid: 10, body: '#ffffff', wing: '#17804a' },
+    { id: 'condor', name: 'Condor', kind: 'Langstreckenjet', kmh: 910, range: 13000, rate: 30, price: 100000, turn: 1.1, len: 58, span: 60, sweep: 15, wid: 12, body: '#ffffff', wing: '#12233d' },
+    { id: 'komet', name: 'Komet', kind: 'Überschalljet', kmh: 2100, range: 20100, rate: 60, price: 350000, turn: 1.25, len: 60, span: 34, sweep: 26, wid: 8, body: '#f4f6fa', wing: '#ff7a1a' },
+  ];
+  const PLANE = Object.fromEntries(PLANES.map(p => [p.id, p]));
+
+  // Küstenlinien aus der Begleitdatei (Grad x 100)
+  const LAND = (window.LAND || []).map(raw => {
+    const p = new Float32Array(raw.length);
+    let minx = 999, maxx = -999, miny = 999, maxy = -999;
+    for (let i = 0; i < raw.length; i += 2) {
+      const x = raw[i] / 100, y = raw[i + 1] / 100;
+      p[i] = x; p[i + 1] = y;
+      if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+    }
+    return { p, minx, maxx, miny, maxy };
+  });
+
+  // ---------- Hilfen ----------
+  const $ = id => document.getElementById(id);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const wrap = d => ((((d + 180) % 360) + 360) % 360) - 180;
+  const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
+  const fmt = n => Math.round(n).toLocaleString('de-CH');
+  const mmss = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  function distKm(a, b) {
+    const p1 = a.lat * RAD, p2 = b.lat * RAD, dl = (b.lon - a.lon) * RAD;
+    const h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function hash(ix, iy, k) {
+    let h = Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(k | 0, 1442695041);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  const flightTime = (km, pl) => clamp(120 * km / pl.range, 60, 120);
+  const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // ---------- Karriere ----------
+  const fresh = () => ({ money: 0, owned: ['spatz'], plane: 'spatz', city: 'ZRH', flights: 0, earned: 0, mute: false });
+  let S = fresh(), best = 0;
+  function save() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); localStorage.setItem(BEST_KEY, String(best)); } catch (e) { /* ohne Speicher weiterspielen */ }
+  }
+  function load() {
+    try {
+      best = Math.max(0, parseInt(localStorage.getItem(BEST_KEY), 10) || 0);
+      const d = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (!d || typeof d !== 'object') return;
+      const f = fresh();
+      if (typeof d.money === 'number' && isFinite(d.money)) f.money = Math.max(0, d.money);
+      if (Array.isArray(d.owned)) d.owned.forEach(id => { if (PLANE[id] && !f.owned.includes(id)) f.owned.push(id); });
+      if (PLANE[d.plane] && f.owned.includes(d.plane)) f.plane = d.plane;
+      if (CITY[d.city]) f.city = d.city;
+      f.flights = Math.max(0, d.flights | 0);
+      f.earned = Math.max(0, +d.earned || 0);
+      f.mute = !!d.mute;
+      S = f;
+    } catch (e) { /* kaputter Spielstand: neu anfangen */ }
+  }
+  const plane = () => PLANE[S.plane];
+
+  // ---------- Ton ----------
+  let ac = null;
+  function beep(freq, dur, type, vol, slide) {
+    if (S.mute) return;
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime;
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t0);
+      if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t0 + dur);
+      g.gain.setValueAtTime(vol || 0.04, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0); o.stop(t0 + dur);
+    } catch (e) { /* kein Ton verfügbar */ }
+  }
+
+  // ---------- DOM ----------
+  const canvas = $('view'), ctx = canvas.getContext('2d'), stage = $('stage');
+  const $money = $('money'), $planeName = $('planeName'), $where = $('where'), $flights = $('flights');
+  const $toast = $('toast'), $routeBox = $('routeBox'), $pads = $('pads'), $rTitle = $('rTitle'), $rMeta = $('rMeta'), $depart = $('depart');
+  const $hangar = $('hangar'), $fleet = $('fleet'), $dlg = $('dlg'), $dTitle = $('dTitle'), $dBody = $('dBody'), $dOk = $('dOk'), $dNo = $('dNo');
+  const $mute = $('mute');
+
+  let toastTimer = 0;
+  function toast(msg) {
+    $toast.textContent = msg; $toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $toast.classList.remove('show'), 2600);
+  }
+  let dlgOk = null, modalOpen = false;
+  function dialog(title, html, okLabel, onOk, cancellable) {
+    $dTitle.textContent = title; $dBody.innerHTML = html; $dOk.textContent = okLabel;
+    $dNo.hidden = !cancellable; dlgOk = onOk; modalOpen = true; keys.clear();
+    $dlg.hidden = false; $dOk.focus();
+  }
+  function closeModals() { $dlg.hidden = true; $hangar.hidden = true; modalOpen = false; dlgOk = null; }
+  $dOk.addEventListener('click', () => { const f = dlgOk; closeModals(); if (f) f(); });
+  $dNo.addEventListener('click', closeModals);
+
+  // ---------- Zustand ----------
+  let mode = 'map';          // map | fly | landed | crash
+  let selected = null, hover = null, F = null, time = 0;
+  const keys = new Set();
+  let ptr = null;
+
+  // ---------- Karte ----------
+  function mapView() {
+    const c = CITY[S.city], p = plane();
+    const widthDeg = clamp(2.7 * p.range / (111 * Math.cos(c.lat * RAD)), 34, 360);
+    const ppd = W / widthDeg, hDeg = H / ppd;
+    const lat0 = hDeg >= 176 ? 0 : clamp(c.lat, -88 + hDeg / 2, 88 - hDeg / 2);
+    return { lon0: c.lon, lat0, ppd, cx: W / 2, cy: H / 2 };
+  }
+  const proj = (v, lon, lat) => ({ x: v.cx + wrap(lon - v.lon0) * v.ppd, y: v.cy - (lat - v.lat0) * v.ppd });
+
+  function landPath(v) {
+    const lon0 = wrap(v.lon0), ppd = v.ppd;
+    const step = (ppd < 5 ? 3 : ppd < 14 ? 2 : 1) * 2;
+    ctx.beginPath();
+    for (const r of LAND) {
+      if ((r.maxx - r.minx) * ppd < 1.2 && (r.maxy - r.miny) * ppd < 1.2) continue;
+      if (v.cy - (r.miny - v.lat0) * ppd < 0 || v.cy - (r.maxy - v.lat0) * ppd > H) continue;
+      for (let k = -360; k <= 360; k += 360) {
+        if (v.cx + (r.maxx + k - lon0) * ppd < 0 || v.cx + (r.minx + k - lon0) * ppd > W) continue;
+        const p = r.p, n = p.length;
+        ctx.moveTo(v.cx + (p[0] + k - lon0) * ppd, v.cy - (p[1] - v.lat0) * ppd);
+        for (let i = step; i < n; i += step) ctx.lineTo(v.cx + (p[i] + k - lon0) * ppd, v.cy - (p[i + 1] - v.lat0) * ppd);
+        ctx.closePath();
+      }
+    }
+  }
+  function graticule(v) {
+    const g = [1, 2, 5, 10, 15, 30, 45].find(s => s * v.ppd >= 70) || 45;
+    ctx.strokeStyle = 'rgba(18,35,61,0.10)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    const lonA = v.lon0 - v.cx / v.ppd, lonB = v.lon0 + (W - v.cx) / v.ppd;
+    for (let l = Math.ceil(lonA / g) * g; l <= lonB; l += g) { const x = v.cx + (l - v.lon0) * v.ppd; ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    const latA = v.lat0 - (H - v.cy) / v.ppd, latB = v.lat0 + v.cy / v.ppd;
+    for (let l = Math.ceil(latA / g) * g; l <= latB; l += g) { const y = v.cy - (l - v.lat0) * v.ppd; ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+  }
+  function text(str, x, y, font, fill, align, halo) {
+    ctx.font = font; ctx.textAlign = align || 'left'; ctx.textBaseline = 'alphabetic';
+    if (halo !== false) { ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.strokeText(str, x, y); }
+    ctx.fillStyle = fill; ctx.fillText(str, x, y);
+  }
+
+  function reachable(c) { return c.code !== S.city && distKm(CITY[S.city], c) <= plane().range; }
+
+  function drawMap() {
+    const v = mapView(), here = CITY[S.city], pl = plane();
+    ctx.fillStyle = C.sea; ctx.fillRect(0, 0, W, H);
+    landPath(v); ctx.fillStyle = C.land; ctx.fill();
+    graticule(v);
+
+    // Reichweite als Ring (nur wenn er auf die Karte passt)
+    if (pl.range <= 7000) {
+      const d = pl.range / 6371, p1 = here.lat * RAD, l1 = here.lon * RAD;
+      ctx.strokeStyle = 'rgba(255,122,26,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([7, 6]);
+      ctx.beginPath();
+      let px = null;
+      for (let b = 0; b <= 360; b += 4) {
+        const th = b * RAD;
+        const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(th));
+        const l2 = l1 + Math.atan2(Math.sin(th) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+        const q = proj(v, l2 / RAD, p2 / RAD);
+        if (px === null || Math.abs(q.x - px) > W / 2) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+        px = q.x;
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    // Gewählte Strecke
+    if (selected) {
+      const a = proj(v, here.lon, here.lat), b = proj(v, selected.lon, selected.lat);
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 2.5; ctx.setLineDash([3, 6]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y);
+      if (Math.abs(b.x - a.x) < W * 0.75) ctx.lineTo(b.x, b.y);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    // Städte
+    const named = v.ppd > 9;
+    for (const c of CITIES) {
+      const q = proj(v, c.lon, c.lat);
+      if (q.x < -20 || q.x > W + 20 || q.y < -20 || q.y > H + 20) continue;
+      const isHere = c === here, ok = !isHere && reachable(c), sel = c === selected, hov = c === hover;
+      if (isHere) continue;
+      ctx.fillStyle = ok ? C.accent : 'rgba(75,91,117,0.55)';
+      ctx.beginPath(); ctx.arc(q.x, q.y, ok ? 6 : 3.5, 0, Math.PI * 2); ctx.fill();
+      if (ok) { ctx.strokeStyle = C.ink; ctx.lineWidth = 1.5; ctx.stroke(); }
+      if (sel) { ctx.strokeStyle = C.ink; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(q.x, q.y, 11, 0, Math.PI * 2); ctx.stroke(); }
+      if (ok || sel || hov) text(named || sel || hov ? c.name : c.code, q.x + 10, q.y + 4, '700 ' + (named ? 13 : 11) + 'px ' + FONT, C.ink);
+    }
+    // Dein Standort mit Flugzeug
+    const h = proj(v, here.lon, here.lat);
+    ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(h.x, h.y, 9 + Math.sin(time * 3) * 1.5, 0, Math.PI * 2); ctx.fill();
+    drawPlane(h.x, h.y, -Math.PI / 2, pl, 0.55, false, 0);
+    text(here.name, h.x + 14, h.y - 10, '700 14px ' + FONT, C.ink);
+
+    text('WELTKARTE · ' + pl.name.toUpperCase() + ' · REICHWEITE ' + fmt(pl.range) + ' KM', 14, 22, '700 11px ' + MONO, C.muted);
+    if (!LAND.length) text('Die Karten-Datei weltflieger-welt.js fehlt, deshalb sieht man keine Länder.', 14, H - 14, '700 12px ' + FONT, C.danger);
+  }
+
+  // ---------- Flugzeug zeichnen (von oben) ----------
+  function drawPlane(x, y, ang, pl, scale, shadow, bank) {
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(ang); ctx.scale(scale, scale * (1 - 0.22 * Math.abs(bank || 0)));
+    const L = pl.len, S2 = pl.span / 2, sw = pl.sweep, wx = L * 0.1;
+    const sh = 'rgba(18,35,61,0.22)';
+    ctx.fillStyle = shadow ? sh : pl.wing;
+    ctx.beginPath();
+    ctx.moveTo(wx + L * 0.1, 0); ctx.lineTo(wx - sw, -S2); ctx.lineTo(wx - sw - L * 0.15, -S2); ctx.lineTo(wx - L * 0.2, 0);
+    ctx.lineTo(wx - sw - L * 0.15, S2); ctx.lineTo(wx - sw, S2); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.34, 0); ctx.lineTo(-L * 0.42 - sw * 0.4, -S2 * 0.38); ctx.lineTo(-L * 0.5 - sw * 0.4, -S2 * 0.38); ctx.lineTo(-L * 0.47, 0);
+    ctx.lineTo(-L * 0.5 - sw * 0.4, S2 * 0.38); ctx.lineTo(-L * 0.42 - sw * 0.4, S2 * 0.38); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = shadow ? sh : pl.body;
+    ctx.beginPath(); ctx.ellipse(0, 0, L * 0.5, pl.wid / 2, 0, 0, Math.PI * 2); ctx.fill();
+    if (!shadow) {
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.fillStyle = C.ink; ctx.beginPath(); ctx.ellipse(L * 0.33, 0, L * 0.07, pl.wid * 0.26, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = pl.wing; ctx.fillRect(-L * 0.3, -1, L * 0.5, 2);
+      if (pl.prop) {
+        ctx.strokeStyle = 'rgba(18,35,61,0.45)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(L * 0.52, -9); ctx.lineTo(L * 0.52, 9); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ---------- Flug vorbereiten ----------
+  function startFlight(dest) {
+    const o = CITY[S.city], pl = plane(), tier = PLANES.indexOf(pl);
+    const km = distKm(o, dest), T = flightTime(km, pl);
+    const dlon = wrap(dest.lon - o.lon), dlat = dest.lat - o.lat;
+    const Ld = Math.max(0.01, Math.hypot(dlon, dlat));
+    const v = Ld / T, ppd = SCREEN_SPEED / v, Lpx = Ld * ppd;
+    const ux = dlon / Ld, uy = dlat / Ld, nx = -uy, ny = ux;
+    const at = (s, off) => ({ x: o.lon + (ux * s + nx * off) / ppd, y: o.lat + (uy * s + ny * off) / ppd });
+    const routeAng = Math.atan2(dlat, dlon);
+
+    const storms = [];
+    const ns = Math.round(4 + 6 * (T - 60) / 60 + tier * 0.8);
+    for (let i = 0; i < ns; i++) {
+      const s = 430 + (Lpx - 1150) * ((i + 0.2 + Math.random() * 0.6) / ns);
+      let off = (Math.random() * 2 - 1) * 260;
+      if (Math.random() < 0.35) off *= 0.25;
+      const p = at(s, off), a = Math.random() * Math.PI * 2, r = 50 + Math.random() * 50;
+      const lobes = [];
+      for (let k = 0; k < 7; k++) { const la = k / 7 * Math.PI * 2; lobes.push({ x: Math.cos(la) * r * 0.55, y: Math.sin(la) * r * 0.55, r: r * (0.5 + Math.random() * 0.22) }); }
+      storms.push({ x: p.x, y: p.y, r, vx: Math.cos(a) * 7 / ppd, vy: Math.sin(a) * 7 / ppd, lobes, flash: Math.random() * 3 });
+    }
+    const traffic = [];
+    const nt = 2 + tier;
+    for (let i = 0; i < nt; i++) {
+      const s = 520 + (Lpx - 1350) * Math.random();
+      const p = at(s, 0), a = routeAng + (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 3 + Math.random() * Math.PI / 3);
+      traffic.push({ cx: p.x, cy: p.y, a, sp: (55 + Math.random() * 40) / ppd, ta: s / SCREEN_SPEED + Math.random() * 6 - 3 });
+    }
+    const rings = [];
+    const nr = 3 + Math.floor(T / 40);
+    for (let i = 0; i < nr; i++) {
+      const s = 380 + (Lpx - 1000) * ((i + 0.5) / nr);
+      const p = at(s, (Math.random() < 0.5 ? 1 : -1) * (40 + Math.random() * 130));
+      rings.push({ x: p.x, y: p.y, got: false });
+    }
+    const clouds = [];
+    for (let i = 0; i < 12; i++) clouds.push({ x: Math.random() * (W + 300) - 150, y: Math.random() * (H + 200) - 100, s: 40 + Math.random() * 60 });
+
+    F = {
+      o, d: dest, pl, km, T, Ld, v, ppd, dx: o.lon + dlon, dy: dest.lat,
+      x: o.lon, y: o.lat, hdg: routeAng, rwyO: routeAng, rwy: routeAng + (Math.random() * 2 - 1) * 0.9,
+      thr: 1, spd: 0, fuel: 1, dmg: 0, t: 0, roll: 0, alt: 0, bank: 0, phase: 'takeoff',
+      storms, traffic, rings, clouds, got: 0, hint: 'Start frei! Das Flugzeug hebt von selbst ab.', hintT: 4,
+      shake: 0, end: 0, reason: '', quality: null, boomX: 0, boomY: 0,
+    };
+    mode = 'fly'; selected = null; hover = null; ptr = null; keys.clear();
+    $routeBox.hidden = true; $pads.hidden = false;
+    beep(180, 0.5, 'sawtooth', 0.04, 2.2);
+  }
+
+  function hint(msg, secs) { if (F.hint !== msg || F.hintT <= 0) { F.hint = msg; F.hintT = secs || 3; } else F.hintT = Math.max(F.hintT, 0.6); }
+
+  function crash(reason) {
+    const f = F;
+    f.phase = 'crash'; f.reason = reason; f.end = 0; f.boomX = f.x; f.boomY = f.y;
+    mode = 'crash';
+    // Die Karriere ist sofort vorbei; der Rekord bleibt.
+    f.stats = { flights: S.flights, earned: S.earned };
+    best = Math.max(best, S.earned);
+    const mute = S.mute;
+    S = fresh(); S.mute = mute;
+    save();
+    beep(140, 0.7, 'sawtooth', 0.07, 0.3);
+  }
+
+  function land(w, ad) {
+    const f = F;
+    f.phase = 'landed'; f.end = 0; mode = 'landed';
+    f.quality = Math.abs(w) < 7 && ad < 0.14 ? 'soft' : Math.abs(w) < 14 && ad < 0.28 ? 'clean' : 'hard';
+    beep(520, 0.12, 'triangle', 0.05);
+    setTimeout(() => beep(780, 0.2, 'triangle', 0.05), 130);
+  }
+
+  function showResult() {
+    const f = F, base = f.km * f.pl.rate;
+    const rows = [['Strecke ' + fmt(f.km) + ' km × ' + f.pl.rate, fmt(base), '']];
+    let factor = 1;
+    const q = f.quality === 'soft' ? ['Butterweiche Landung', 0.25] : f.quality === 'clean' ? ['Saubere Landung', 0.10] : ['Harte Landung', 0];
+    if (q[1]) { rows.push([q[0], '+' + Math.round(q[1] * 100) + ' %', 'plus']); factor += q[1]; } else rows.push([q[0], '+0 %', '']);
+    if (f.t <= f.T) { rows.push(['Pünktlich angekommen', '+15 %', 'plus']); factor += 0.15; }
+    if (f.got) { rows.push([f.got + (f.got === 1 ? ' Bonus-Ring' : ' Bonus-Ringe'), '+' + f.got * 4 + ' %', 'plus']); factor += f.got * 0.04; }
+    if (f.dmg > 0.02) { const m = Math.round(f.dmg * 30); rows.push(['Reparatur nach Gewitter', '−' + m + ' %', 'minus']); factor -= m / 100; }
+    const total = Math.max(0, Math.round(base * factor));
+    S.money += total; S.earned += total; S.flights++; S.city = f.d.code;
+    best = Math.max(best, S.earned);
+    save();
+    const html = '<p>Flugzeit ' + mmss(f.t) + ' Minuten mit dem ' + f.pl.name + '.</p><div class="bill">' +
+      rows.map(r => '<div class="' + r[2] + '"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
+      '<div class="sum"><span>Dein Lohn</span><span>' + fmt(total) + '</span></div></div>';
+    dialog('Gelandet in ' + f.d.name, html, 'Weiter', backToMap, false);
+  }
+  function showCrash() {
+    const f = F;
+    const html = '<p><b>' + f.reason + '</b></p><p>Deine Karriere ist vorbei: ' + f.stats.flights +
+      (f.stats.flights === 1 ? ' Flug' : ' Flüge') + ', ' + fmt(f.stats.earned) + ' verdient. Dein Rekord: ' + fmt(best) +
+      '.</p><p>Du fängst wieder in Zürich mit dem Spatz an.</p>';
+    dialog('Absturz!', html, 'Neu anfangen', backToMap, false);
+  }
+  function backToMap() {
+    mode = 'map'; F = null; selected = null; ptr = null; keys.clear();
+    $routeBox.hidden = false; $pads.hidden = true;
+    routeInfo();
+  }
+
+  // ---------- Flug rechnen ----------
+  function flightStep(dt) {
+    const f = F, ppd = f.ppd;
+    if (f.phase === 'crash' || f.phase === 'landed') {
+      f.end += dt;
+      if (f.phase === 'landed') {
+        f.spd = Math.max(0, f.spd - dt * 0.7); f.alt = Math.max(0, f.alt - dt * 1.4);
+        const sp = f.v * f.spd;
+        f.x += Math.cos(f.hdg) * sp * dt; f.y += Math.sin(f.hdg) * sp * dt;
+        if (f.end > 1.5 && !modalOpen) showResult();
+      } else if (f.end > 1.4 && !modalOpen) showCrash();
+      return;
+    }
+    f.t += dt;
+    if (f.hintT > 0) f.hintT -= dt;
+    f.shake = Math.max(0, f.shake - dt * 3);
+
+    let turn = 0;
+    if (f.phase === 'takeoff') {
+      f.roll += dt;
+      f.spd = clamp(f.roll / 2.6, 0, 1);
+      f.alt = clamp((f.roll - 1.4) / 1.2, 0, 1);
+      if (f.roll >= 2.6) { f.phase = 'cruise'; hint('Weiche Gewittern und anderen Flugzeugen aus. Der orange Pfeil zeigt zum Ziel.', 5); }
+    } else {
+      if (keys.has('ArrowLeft') || keys.has('KeyA')) turn += 1;
+      if (keys.has('ArrowRight') || keys.has('KeyD')) turn -= 1;
+      if (!turn && ptr) {
+        const want = Math.atan2(-(ptr.y - CY), ptr.x - CX);
+        turn = clamp(angDiff(want, f.hdg) / 0.2, -1, 1);
+      }
+      f.hdg += turn * f.pl.turn * dt;
+      let th = 0;
+      if (keys.has('ArrowUp') || keys.has('KeyW')) th += 1;
+      if (keys.has('ArrowDown') || keys.has('KeyS')) th -= 1;
+      f.thr = clamp(f.thr + th * 0.45 * dt, 0.6, 1.4);
+      f.spd = f.thr;
+      f.fuel -= dt * Math.pow(f.thr, 1.6) / (1.5 * f.T);
+    }
+    f.bank += (turn - f.bank) * Math.min(1, dt * 6);
+    const sp = f.v * f.spd;
+    f.x += Math.cos(f.hdg) * sp * dt;
+    f.y = clamp(f.y + Math.sin(f.hdg) * sp * dt, -88, 88);
+
+    // Wolken ziehen vorbei
+    const vxp = Math.cos(f.hdg) * SCREEN_SPEED * f.spd, vyp = -Math.sin(f.hdg) * SCREEN_SPEED * f.spd;
+    for (const c of f.clouds) {
+      c.x -= vxp * 0.35 * dt; c.y -= vyp * 0.35 * dt;
+      if (c.x < -160) c.x += W + 320; else if (c.x > W + 160) c.x -= W + 320;
+      if (c.y < -110) c.y += H + 220; else if (c.y > H + 110) c.y -= H + 220;
+    }
+    if (f.phase !== 'cruise') return;
+
+    // Gewitter
+    let inStorm = false;
+    for (const s of f.storms) {
+      s.x += s.vx * dt; s.y += s.vy * dt; s.flash -= dt;
+      if (s.flash < -0.25) s.flash = 1.5 + Math.random() * 3;
+      if (Math.hypot(f.x - s.x, f.y - s.y) * ppd < s.r) inStorm = true;
+    }
+    if (inStorm) {
+      f.dmg += dt * 0.55; f.shake = 1;
+      hint('Gewitter! Sofort raus hier!', 1);
+      if (Math.random() < dt * 6) beep(90 + Math.random() * 60, 0.12, 'sawtooth', 0.05);
+      if (f.dmg >= 1) return crash('Das Gewitter hat dein Flugzeug zerlegt.');
+    }
+    // Andere Flugzeuge
+    for (const t of f.traffic) {
+      const k = (f.t - t.ta) * t.sp;
+      t.x = t.cx + Math.cos(t.a) * k; t.y = t.cy + Math.sin(t.a) * k;
+      const d = Math.hypot(f.x - t.x, f.y - t.y) * ppd;
+      if (d < 24) return crash('Zusammenstoss mit einem anderen Flugzeug.');
+      if (d < 200) hint('Achtung, Verkehr! Ausweichen!', 1);
+    }
+    // Bonus-Ringe
+    for (const r of f.rings) {
+      if (!r.got && Math.hypot(f.x - r.x, f.y - r.y) * ppd < 30) { r.got = true; f.got++; beep(990, 0.09, 'triangle', 0.05, 1.4); }
+    }
+    // Treibstoff
+    if (f.fuel <= 0) return crash('Der Tank war leer.');
+    if (f.fuel < 0.15) hint('Treibstoff fast leer!', 1);
+
+    // Landung
+    const rx = (f.x - f.dx) * ppd, ry = (f.y - f.dy) * ppd, dd = Math.hypot(rx, ry);
+    const ex = Math.cos(f.rwy), ey = Math.sin(f.rwy);
+    const u = rx * ex + ry * ey, w = -rx * ey + ry * ex, ad = Math.abs(angDiff(f.hdg, f.rwy));
+    if (dd < 620 && !inStorm) {
+      if (f.thr > 0.82) hint('Zum Landen langsamer werden: Schub unter 80 %.', 1);
+      else hint('Flieg durch den grünen Anflug auf die Landebahn.', 1);
+    }
+    if (u > -100 && u < 45 && Math.abs(w) < 20) {
+      if (ad <= 0.42) {
+        if (f.thr <= 0.82) land(w, ad);
+        else crash('Zu schnell gelandet: Du bist über die Landebahn hinausgeschossen.');
+      } else hint('Durchstarten! Du musst in Richtung der Landebahn anfliegen.', 2);
+    }
+  }
+
+  // ---------- Flug zeichnen ----------
+  function drawRunway(sx, sy, ang, withCone) {
+    ctx.save();
+    ctx.translate(sx, sy); ctx.rotate(-ang);
+    if (withCone) {
+      ctx.fillStyle = 'rgba(23,128,74,0.22)';
+      ctx.beginPath(); ctx.moveTo(-100, -20); ctx.lineTo(-520, -90); ctx.lineTo(-520, 90); ctx.lineTo(-100, 20); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(23,128,74,0.8)'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.moveTo(-520, 0); ctx.lineTo(-100, 0); ctx.stroke(); ctx.setLineDash([]);
+      // Pfeile in Landerichtung
+      ctx.fillStyle = 'rgba(23,128,74,0.85)';
+      for (let x = -460; x < -120; x += 110) { ctx.beginPath(); ctx.moveTo(x + 16, 0); ctx.lineTo(x, -9); ctx.lineTo(x, 9); ctx.closePath(); ctx.fill(); }
+    }
+    ctx.fillStyle = '#39424f'; ctx.fillRect(-100, -15, 200, 30);
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.setLineDash([14, 10]);
+    ctx.beginPath(); ctx.moveTo(-88, 0); ctx.lineTo(88, 0); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#ffffff';
+    for (let k = -10; k <= 10; k += 5) ctx.fillRect(-96, k - 1.2, 10, 2.4);
+    ctx.restore();
+  }
+
+  function drawFlight() {
+    const f = F, ppd = f.ppd;
+    const v = { lon0: f.x, lat0: f.y, ppd, cx: CX, cy: CY };
+    const X = lon => CX + (lon - f.x) * ppd, Y = lat => CY - (lat - f.y) * ppd;
+    ctx.save();
+    if (f.shake > 0 && !reducedMotion) ctx.translate((Math.random() - 0.5) * 8 * f.shake, (Math.random() - 0.5) * 8 * f.shake);
+
+    // Meer mit Wellen, Land mit Wäldern und Feldern: beides wandert mit der Karte, damit man das Tempo sieht
+    ctx.fillStyle = C.sea; ctx.fillRect(-10, -10, W + 20, H + 20);
+    const cell = 96, wx0 = f.x * ppd - CX, wy0 = -f.y * ppd - CY;
+    const ix0 = Math.floor(wx0 / cell) - 1, ix1 = Math.floor((wx0 + W) / cell) + 1;
+    const iy0 = Math.floor(wy0 / cell) - 1, iy1 = Math.floor((wy0 + H) / cell) + 1;
+    ctx.strokeStyle = C.seaTick; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let ix = ix0; ix <= ix1; ix++) for (let iy = iy0; iy <= iy1; iy++) {
+      const x = (ix + hash(ix, iy, 1)) * cell - wx0, y = (iy + hash(ix, iy, 2)) * cell - wy0;
+      ctx.moveTo(x - 9, y); ctx.quadraticCurveTo(x - 4, y - 5, x, y); ctx.quadraticCurveTo(x + 4, y + 5, x + 9, y);
+    }
+    ctx.stroke();
+    landPath(v);
+    ctx.fillStyle = C.land; ctx.fill();
+    ctx.save(); ctx.clip();
+    for (let ix = ix0; ix <= ix1; ix++) for (let iy = iy0; iy <= iy1; iy++) {
+      const x = (ix + hash(ix, iy, 3)) * cell - wx0, y = (iy + hash(ix, iy, 4)) * cell - wy0, k = hash(ix, iy, 5);
+      ctx.fillStyle = k < 0.55 ? C.landDark : C.landLight;
+      ctx.beginPath(); ctx.ellipse(x, y, 16 + k * 26, 10 + hash(ix, iy, 6) * 18, k * 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    graticule(v);
+
+    // Strecke und Städte
+    ctx.strokeStyle = 'rgba(18,35,61,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([4, 8]);
+    ctx.beginPath(); ctx.moveTo(X(f.o.lon), Y(f.o.lat)); ctx.lineTo(X(f.dx), Y(f.dy)); ctx.stroke(); ctx.setLineDash([]);
+    for (const c of CITIES) {
+      if (c === f.o || c === f.d) continue;
+      const sx = X(f.x + wrap(c.lon - f.x)), sy = Y(c.lat);
+      if (sx < -60 || sx > W + 60 || sy < -30 || sy > H + 30) continue;
+      ctx.fillStyle = C.muted; ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
+      text(c.name, sx + 9, sy + 4, '700 13px ' + FONT, C.muted);
+    }
+    const ox = X(f.o.lon), oy = Y(f.o.lat), dx = X(f.dx), dy = Y(f.dy);
+    if (ox > -700 && ox < W + 700 && oy > -700 && oy < H + 700) { drawRunway(ox, oy, f.rwyO, false); text(f.o.name, ox, oy - 26, '700 14px ' + FONT, C.ink, 'center'); }
+    if (dx > -700 && dx < W + 700 && dy > -700 && dy < H + 700) { drawRunway(dx, dy, f.rwy, true); text(f.d.name, dx, dy - 26, '700 15px ' + FONT, C.ink, 'center'); }
+
+    // Bonus-Ringe
+    for (const r of f.rings) {
+      if (r.got) continue;
+      const sx = X(r.x), sy = Y(r.y);
+      if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
+      ctx.strokeStyle = C.gold; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(sx, sy, 20 + Math.sin(time * 5) * 2, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(sx, sy, 23 + Math.sin(time * 5) * 2, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // Gewitter
+    for (const s of f.storms) {
+      const sx = X(s.x), sy = Y(s.y);
+      if (sx < -200 || sx > W + 200 || sy < -200 || sy > H + 200) continue;
+      ctx.fillStyle = C.storm;
+      for (const l of s.lobes) { ctx.beginPath(); ctx.arc(sx + l.x, sy + l.y, l.r, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = C.stormCore; ctx.beginPath(); ctx.arc(sx, sy, s.r * 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(200,30,58,0.85)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.arc(sx, sy, s.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      if (s.flash < 0) {
+        ctx.strokeStyle = '#ffe94d'; ctx.lineWidth = 3; ctx.lineJoin = 'miter';
+        ctx.beginPath(); ctx.moveTo(sx - 6, sy - 22); ctx.lineTo(sx + 5, sy - 4); ctx.lineTo(sx - 4, sy - 1); ctx.lineTo(sx + 8, sy + 22); ctx.stroke();
+      }
+    }
+
+    // Andere Flugzeuge
+    if (f.phase !== 'takeoff') {
+      for (const t of f.traffic) {
+        if (t.x === undefined) continue;
+        const sx = X(t.x), sy = Y(t.y);
+        if (sx < -60 || sx > W + 60 || sy < -60 || sy > H + 60) continue;
+        drawPlane(sx + 8, sy + 10, -t.a, TRAFFIC_LOOK, 0.9, true, 0);
+        drawPlane(sx, sy, -t.a, TRAFFIC_LOOK, 0.9, false, 0);
+        if (Math.hypot(sx - CX, sy - CY) < 220) {
+          ctx.strokeStyle = C.danger; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.arc(sx, sy, 30 + Math.sin(time * 12) * 3, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
+    }
+
+    // Dein Flugzeug
+    if (f.phase === 'crash') {
+      const bx = X(f.boomX), by = Y(f.boomY), k = clamp(f.end / 1.2, 0, 1);
+      ctx.fillStyle = 'rgba(255,122,26,' + (1 - k) + ')'; ctx.beginPath(); ctx.arc(bx, by, 20 + k * 90, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,233,77,' + (1 - k) + ')'; ctx.beginPath(); ctx.arc(bx, by, 10 + k * 50, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(40,44,60,' + (0.7 * (1 - k * 0.5)) + ')';
+      for (let i = 0; i < 6; i++) { const a = i * 1.05 + 0.4; ctx.beginPath(); ctx.arc(bx + Math.cos(a) * k * 70, by + Math.sin(a) * k * 70, 12 + k * 16, 0, Math.PI * 2); ctx.fill(); }
+    } else {
+      const sc = 0.72 + 0.28 * f.alt;
+      drawPlane(CX + 10 * f.alt, CY + 14 * f.alt, -f.hdg, f.pl, sc * 0.95, true, f.bank);
+      drawPlane(CX, CY, -f.hdg, f.pl, sc, false, f.bank);
+    }
+
+    // Schleierwolken über allem
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (const c of f.clouds) {
+      ctx.beginPath(); ctx.ellipse(c.x, c.y, c.s, c.s * 0.36, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(c.x + c.s * 0.5, c.y - c.s * 0.16, c.s * 0.6, c.s * 0.26, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // Pfeil zum Ziel, wenn es nicht im Bild ist
+    const left = Math.hypot(f.dx - f.x, f.dy - f.y), kmLeft = f.km * left / f.Ld;
+    if (dx < 40 || dx > W - 40 || dy < 60 || dy > H - 60) {
+      const a = Math.atan2(dy - CY, dx - CX);
+      const ax = clamp(CX + Math.cos(a) * 1000, 46, W - 46), ay = clamp(CY + Math.sin(a) * 1000, 86, H - 70);
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(a);
+      ctx.fillStyle = C.accent; ctx.strokeStyle = C.ink; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-10, -13); ctx.lineTo(-4, 0); ctx.lineTo(-10, 13); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      text(f.d.code + ' ' + fmt(kmLeft) + ' km', clamp(ax, 70, W - 70), ay + (ay > H / 2 ? -22 : 32), '700 12px ' + MONO, C.ink, 'center');
+    }
+
+    // Instrumente
+    ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.strokeStyle = C.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(12, 12, 286, 92); ctx.fill(); ctx.stroke();
+    text(f.o.code + ' → ' + f.d.code + '  ' + f.d.name, 22, 32, '700 14px ' + FONT, C.ink, 'left', false);
+    text('NOCH ' + fmt(kmLeft) + ' KM', 22, 50, '700 12px ' + MONO, C.muted, 'left', false);
+    text('ZEIT ' + mmss(f.t) + ' / ' + mmss(f.T), 288, 50, '700 12px ' + MONO, f.t > f.T ? C.danger : C.muted, 'right', false);
+    bar(22, 60, 'TANK', clamp(f.fuel, 0, 1), f.fuel < 0.2 ? C.danger : C.good);
+    bar(22, 76, 'SCHADEN', clamp(f.dmg, 0, 1), C.danger);
+    const pct = Math.round(f.thr * 100);
+    ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.beginPath(); ctx.rect(W - 152, 12, 140, 56); ctx.fill(); ctx.stroke();
+    text('SCHUB', W - 142, 30, '700 11px ' + MONO, C.muted, 'left', false);
+    text(pct + ' %', W - 22, 32, '700 16px ' + MONO, f.thr <= 0.82 ? C.good : C.ink, 'right', false);
+    ctx.fillStyle = '#dfe6ee'; ctx.fillRect(W - 142, 42, 120, 10);
+    ctx.fillStyle = f.thr <= 0.82 ? C.good : C.accent; ctx.fillRect(W - 142, 42, 120 * (f.thr - 0.6) / 0.8, 10);
+    ctx.fillStyle = C.ink; ctx.fillRect(W - 142 + 120 * (0.82 - 0.6) / 0.8, 39, 2, 16);
+    text(Math.round(f.pl.kmh * f.spd) + ' km/h', W - 22, 64, '700 10px ' + MONO, C.muted, 'right', false);
+
+    if (f.hintT > 0 && f.phase !== 'crash' && f.phase !== 'landed') {
+      ctx.font = '700 15px ' + FONT;
+      const tw = Math.min(W - 40, ctx.measureText(f.hint).width + 28);
+      ctx.fillStyle = 'rgba(18,35,61,0.9)'; ctx.fillRect(CX - tw / 2, H - 46, tw, 30);
+      text(f.hint, CX, H - 26, '700 15px ' + FONT, '#ffffff', 'center', false);
+    }
+  }
+  const TRAFFIC_LOOK = { len: 44, span: 46, sweep: 10, wid: 9, body: '#e9edf2', wing: '#8a96a8' };
+  function bar(x, y, label, val, color) {
+    text(label, x, y + 9, '700 10px ' + MONO, C.muted, 'left', false);
+    ctx.fillStyle = '#dfe6ee'; ctx.fillRect(x + 66, y, 200, 10);
+    ctx.fillStyle = color; ctx.fillRect(x + 66, y, 200 * val, 10);
+  }
+
+  // ---------- Bedienleiste und Kopfzeile ----------
+  function routeInfo() {
+    const here = CITY[S.city], pl = plane();
+    if (!selected) {
+      $rTitle.textContent = 'Du bist in ' + here.name + ' (' + here.code + ')';
+      $rMeta.textContent = 'Klick auf eine orange Stadt, um dein Ziel zu wählen. Graue Städte sind zu weit für den ' + pl.name + '.';
+      $depart.disabled = true;
+    } else {
+      const km = distKm(here, selected);
+      $rTitle.textContent = here.code + ' → ' + selected.code + '  ' + selected.name;
+      $rMeta.textContent = fmt(km) + ' km · Flugzeit etwa ' + mmss(flightTime(km, pl)) + ' · Lohn ab ' + fmt(km * pl.rate);
+      $depart.disabled = false;
+    }
+  }
+  function hud() {
+    const set = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+    set($money, fmt(S.money)); set($planeName, plane().name); set($where, S.city); set($flights, String(S.flights));
+    set($mute, S.mute ? 'Ton: aus' : 'Ton: an');
+  }
+  function renderFleet() {
+    $fleet.innerHTML = PLANES.map(p => {
+      const own = S.owned.includes(p.id), act = S.plane === p.id, can = S.money >= p.price;
+      const btn = act ? '<button type="button" disabled>Im Einsatz</button>'
+        : own ? '<button type="button" data-use="' + p.id + '">Auswählen</button>'
+        : '<button type="button" data-buy="' + p.id + '" class="' + (can ? 'go' : '') + '">Kaufen für ' + fmt(p.price) + '</button>';
+      return '<div class="craft"><span class="info"><b>' + p.name + '</b><small>' + p.kind + ' · ' + fmt(p.kmh) + ' km/h · Reichweite ' +
+        fmt(p.range) + ' km · Lohn ' + p.rate + ' pro km</small></span>' + btn + '</div>';
+    }).join('');
+  }
+
+  // ---------- Eingabe ----------
+  const FLY_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyA', 'KeyS', 'KeyD'];
+  window.addEventListener('keydown', ev => {
+    if (modalOpen) { if (ev.key === 'Escape' && (!$hangar.hidden || !$dNo.hidden)) closeModals(); return; }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (mode === 'fly' && FLY_KEYS.includes(ev.code)) { keys.add(ev.code); ev.preventDefault(); }
+  });
+  window.addEventListener('keyup', ev => keys.delete(ev.code));
+  window.addEventListener('blur', () => { keys.clear(); ptr = null; });
+
+  function toWorld(ev) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (ev.clientX - r.left) / r.width * W, y: (ev.clientY - r.top) / r.height * H };
+  }
+  function cityAt(p, radius) {
+    const v = mapView();
+    let bestC = null, bd = radius;
+    for (const c of CITIES) {
+      if (c.code === S.city) continue;
+      const q = proj(v, c.lon, c.lat), d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < bd) { bd = d; bestC = c; }
+    }
+    return bestC;
+  }
+  canvas.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    const p = toWorld(ev);
+    if (mode === 'fly') { ptr = p; try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* nicht nötig */ } return; }
+    if (mode !== 'map') return;
+    const c = cityAt(p, 20);
+    if (!c) { selected = null; routeInfo(); return; }
+    if (!reachable(c)) {
+      toast(c.name + ' ist ' + fmt(distKm(CITY[S.city], c)) + ' km weg. Der ' + plane().name + ' schafft nur ' + fmt(plane().range) + ' km.');
+      return;
+    }
+    selected = c; routeInfo(); beep(660, 0.05, 'square', 0.03);
+  });
+  canvas.addEventListener('pointermove', ev => {
+    const p = toWorld(ev);
+    if (mode === 'fly') { if (ptr) ptr = p; return; }
+    if (mode === 'map') hover = cityAt(p, 16);
+  });
+  const release = () => { ptr = null; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('pointerleave', () => { hover = null; });
+
+  $pads.querySelectorAll('button').forEach(b => {
+    const k = b.dataset.key;
+    b.addEventListener('pointerdown', ev => { ev.preventDefault(); if (mode === 'fly') keys.add(k); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => b.addEventListener(t, () => keys.delete(k)));
+  });
+
+  $depart.addEventListener('click', () => { if (mode === 'map' && selected) startFlight(selected); });
+  $('hangarBtn').addEventListener('click', () => {
+    if (mode !== 'map') { toast('Der Hangar ist nur am Boden offen.'); return; }
+    renderFleet(); modalOpen = true; $hangar.hidden = false; $('hClose').focus();
+  });
+  $('hClose').addEventListener('click', closeModals);
+  $hangar.addEventListener('click', ev => { if (ev.target === $hangar) closeModals(); });
+  $fleet.addEventListener('click', ev => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    if (b.dataset.buy) {
+      const p = PLANE[b.dataset.buy];
+      if (S.money < p.price) { toast('Dir fehlen noch ' + fmt(p.price - S.money) + ' für den ' + p.name + '.'); return; }
+      S.money -= p.price; S.owned.push(p.id); S.plane = p.id;
+      toast('Der ' + p.name + ' gehört dir!');
+      [523, 659, 784].forEach((f, i) => setTimeout(() => beep(f, 0.15, 'triangle', 0.05), i * 110));
+    } else if (b.dataset.use) {
+      S.plane = b.dataset.use;
+    } else return;
+    selected = null; save(); renderFleet(); routeInfo();
+  });
+  $mute.addEventListener('click', () => { S.mute = !S.mute; save(); });
+  $('resetBtn').addEventListener('click', () => {
+    if (mode !== 'map') { toast('Neu anfangen geht nur am Boden.'); return; }
+    dialog('Neu anfangen?', '<p>Dein Geld und alle gekauften Flugzeuge sind dann weg. Du startest wieder in Zürich mit dem Spatz.</p>', 'Neu anfangen', () => {
+      best = Math.max(best, S.earned);
+      const mute = S.mute; S = fresh(); S.mute = mute; selected = null; save(); routeInfo();
+    }, true);
+  });
+
+  // ---------- Schleife ----------
+  let scale = 1;
+  function fit() {
+    const r = stage.getBoundingClientRect();
+    const s = Math.max(0.2, Math.min(r.width / W, (r.height || H) / H));
+    const cw = Math.floor(W * s), ch = Math.floor(H * s);
+    canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.round(cw * dpr)); canvas.height = Math.max(1, Math.round(ch * dpr));
+    scale = canvas.width / W;
+  }
+  let last = 0;
+  function loop(now) {
+    const dt = clamp((now - last) / 1000, 0, 0.05);
+    last = now; time += dt;
+    if (mode !== 'map' && F && !(modalOpen && F.phase === 'cruise')) flightStep(dt);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    if (mode === 'map' || !F) drawMap(); else drawFlight();
+    hud();
+    requestAnimationFrame(loop);
+  }
+
+  load();
+  routeInfo();
+  fit();
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(stage);
+  window.addEventListener('resize', fit);
+  last = performance.now();
+  requestAnimationFrame(loop);
+})();
+</script>
